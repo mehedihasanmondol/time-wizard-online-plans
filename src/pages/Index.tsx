@@ -1,33 +1,109 @@
 
-import Header from "@/components/Header";
-import Hero from "@/components/Hero";
-import Features from "@/components/Features";
+import { useState } from "react";
+import { Sidebar } from "@/components/Sidebar";
+import { Dashboard } from "@/components/Dashboard";
+import { EmployeeManagement } from "@/components/EmployeeManagement";
+import { ClientManagement } from "@/components/ClientManagement";
+import { ProjectManagement } from "@/components/ProjectManagement";
+import { WorkingHours } from "@/components/WorkingHours";
+import { Roster } from "@/components/Roster";
+import { PayrollComponent } from "@/components/Payroll";
+import { BankBalance } from "@/components/BankBalance";
+import { Reports } from "@/components/Reports";
+import { UserMenu } from "@/components/UserMenu";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { useAuth } from "@/hooks/useAuth";
 
 const Index = () => {
+  const [activeTab, setActiveTab] = useState("dashboard");
+  const { hasPermission } = useAuth();
+
+  const renderActiveComponent = () => {
+    switch (activeTab) {
+      case "dashboard":
+        return (
+          <ProtectedRoute requiredPermission="dashboard_view">
+            <Dashboard />
+          </ProtectedRoute>
+        );
+      case "employees":
+        return (
+          <ProtectedRoute requiredPermission="employees_view">
+            <EmployeeManagement />
+          </ProtectedRoute>
+        );
+      case "clients":
+        return (
+          <ProtectedRoute requiredPermission="clients_view">
+            <ClientManagement />
+          </ProtectedRoute>
+        );
+      case "projects":
+        return (
+          <ProtectedRoute requiredPermission="projects_view">
+            <ProjectManagement />
+          </ProtectedRoute>
+        );
+      case "working-hours":
+        return (
+          <ProtectedRoute requiredPermission="working_hours_view">
+            <WorkingHours />
+          </ProtectedRoute>
+        );
+      case "roster":
+        return (
+          <ProtectedRoute requiredPermission="roster_view">
+            <Roster />
+          </ProtectedRoute>
+        );
+      case "payroll":
+        return (
+          <ProtectedRoute requiredPermission="payroll_view">
+            <PayrollComponent />
+          </ProtectedRoute>
+        );
+      case "bank-balance":
+        return (
+          <ProtectedRoute requiredPermission="bank_balance_view">
+            <BankBalance />
+          </ProtectedRoute>
+        );
+      case "reports":
+        return (
+          <ProtectedRoute requiredPermission="reports_view">
+            <Reports />
+          </ProtectedRoute>
+        );
+      default:
+        return (
+          <ProtectedRoute requiredPermission="dashboard_view">
+            <Dashboard />
+          </ProtectedRoute>
+        );
+    }
+  };
+
   return (
-    <div className="min-h-screen">
-      <Header />
-      <Hero />
-      <Features />
-      
-      {/* Footer */}
-      <footer className="bg-gray-900 text-white py-12">
-        <div className="container mx-auto px-4 text-center">
-          <div className="flex items-center justify-center space-x-2 mb-4">
-            <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-500 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-sm">OS4</span>
+    <ProtectedRoute>
+      <div className="flex h-screen bg-gray-100">
+        <Sidebar 
+          activeTab={activeTab} 
+          onTabChange={setActiveTab}
+          hasPermission={hasPermission}
+        />
+        <div className="flex-1 flex flex-col overflow-hidden ml-64">
+          <header className="bg-white shadow-sm border-b px-6 py-4">
+            <div className="flex justify-between items-center">
+              <h1 className="text-2xl font-bold text-gray-900">Schedule & Payroll Manager</h1>
+              <UserMenu />
             </div>
-            <span className="text-xl font-bold">Online Scheduler 4</span>
-          </div>
-          <p className="text-gray-400 mb-6">
-            The future of intelligent time management starts here
-          </p>
-          <div className="text-sm text-gray-500">
-            Built with ❤️ using React, TypeScript & Tailwind CSS
-          </div>
+          </header>
+          <main className="flex-1 overflow-auto p-6">
+            {renderActiveComponent()}
+          </main>
         </div>
-      </footer>
-    </div>
+      </div>
+    </ProtectedRoute>
   );
 };
 
