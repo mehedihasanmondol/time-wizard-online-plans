@@ -12,7 +12,9 @@ import {
   Wallet,
   Bell,
   DollarSign,
-  Menu
+  Menu,
+  Shield,
+  User
 } from "lucide-react";
 
 interface SidebarProps {
@@ -27,9 +29,15 @@ export const Sidebar = ({ activeTab, onTabChange, hasPermission }: SidebarProps)
   const menuItems = [
     { 
       id: "dashboard", 
-      label: "Dashboard", 
+      label: "Default Dashboard", 
       icon: LayoutDashboard,
       permission: "dashboard_view"
+    },
+    { 
+      id: "personal-dashboard", 
+      label: "My Dashboard", 
+      icon: User,
+      permission: null // Always available to authenticated users
     },
     { 
       id: "employees", 
@@ -85,10 +93,18 @@ export const Sidebar = ({ activeTab, onTabChange, hasPermission }: SidebarProps)
       icon: Wallet,
       permission: "bank_balance_view"
     },
+    { 
+      id: "permissions", 
+      label: "Permissions", 
+      icon: Shield,
+      permission: "employees_manage"
+    },
   ];
 
   // Filter menu items based on user permissions
-  const visibleMenuItems = menuItems.filter(item => hasPermission(item.permission));
+  const visibleMenuItems = menuItems.filter(item => 
+    item.permission === null || hasPermission(item.permission)
+  );
 
   return (
     <div className={cn(

@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { Sidebar } from "@/components/Sidebar";
 import { Dashboard } from "@/components/Dashboard";
+import { PersonalDashboard } from "@/components/PersonalDashboard";
 import { EmployeeManagement } from "@/components/EmployeeManagement";
 import { ClientManagement } from "@/components/ClientManagement";
 import { ProjectManagement } from "@/components/ProjectManagement";
@@ -12,6 +13,8 @@ import { BankBalance } from "@/components/BankBalance";
 import { Reports } from "@/components/Reports";
 import { UserMenu } from "@/components/UserMenu";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { RoleDashboardRouter } from "@/components/RoleDashboardRouter";
+import { RolePermissionsManager } from "@/components/RolePermissionsManager";
 import { useAuth } from "@/hooks/useAuth";
 
 const Index = () => {
@@ -21,11 +24,19 @@ const Index = () => {
   const renderActiveComponent = () => {
     switch (activeTab) {
       case "dashboard":
-        return (
-          <ProtectedRoute requiredPermission="dashboard_view">
-            <Dashboard />
-          </ProtectedRoute>
-        );
+        // Check if user has permission for default dashboard, otherwise show personal dashboard
+        if (hasPermission("dashboard_view")) {
+          return (
+            <ProtectedRoute requiredPermission="dashboard_view">
+              <Dashboard />
+            </ProtectedRoute>
+          );
+        } else {
+          // Show personal dashboard for users without general dashboard permission
+          return <PersonalDashboard />;
+        }
+      case "personal-dashboard":
+        return <PersonalDashboard />;
       case "employees":
         return (
           <ProtectedRoute requiredPermission="employees_view">
@@ -74,18 +85,30 @@ const Index = () => {
             <Reports />
           </ProtectedRoute>
         );
-      default:
+      case "permissions":
         return (
-          <ProtectedRoute requiredPermission="dashboard_view">
-            <Dashboard />
+          <ProtectedRoute requiredPermission="employees_manage">
+            <RolePermissionsManager />
           </ProtectedRoute>
         );
+      default:
+        // Default to personal dashboard for users without general dashboard access
+        if (hasPermission("dashboard_view")) {
+          return (
+            <ProtectedRoute requiredPermission="dashboard_view">
+              <Dashboard />
+            </ProtectedRoute>
+          );
+        } else {
+          return <PersonalDashboard />;
+        }
     }
   };
 
   return (
     <ProtectedRoute>
       <div className="flex h-screen bg-gray-100">
+        <RoleDashboardRouter activeTab={activeTab} setActiveTab={setActiveTab} />
         <Sidebar 
           activeTab={activeTab} 
           onTabChange={setActiveTab}
