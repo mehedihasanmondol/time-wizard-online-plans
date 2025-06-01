@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Clock, Calendar, DollarSign, CheckCircle, AlertCircle, TrendingUp } from "lucide-react";
@@ -46,7 +45,7 @@ export const PersonalDashboard = () => {
       const { data: weeklyHours } = await supabase
         .from('working_hours')
         .select('total_hours, status')
-        .eq('employee_id', profile.id)
+        .eq('profile_id', profile.id)
         .gte('date', weekStart.toISOString().split('T')[0])
         .lte('date', weekEnd.toISOString().split('T')[0]);
 
@@ -54,7 +53,7 @@ export const PersonalDashboard = () => {
       const { data: monthlyHours } = await supabase
         .from('working_hours')
         .select('total_hours')
-        .eq('employee_id', profile.id)
+        .eq('profile_id', profile.id)
         .gte('date', monthStart.toISOString().split('T')[0])
         .lte('date', monthEnd.toISOString().split('T')[0])
         .eq('status', 'approved');
@@ -64,22 +63,26 @@ export const PersonalDashboard = () => {
       const { data: todaySchedule } = await supabase
         .from('working_hours')
         .select('id')
-        .eq('employee_id', profile.id)
+        .eq('profile_id', profile.id)
         .eq('date', todayString);
 
-      // Fetch employee hourly rate for earnings calculation
-      const { data: employeeData } = await supabase
+      // Get hourly rate from employees table (temporarily until migration complete)
+      let hourlyRate = 25; // default
+      const { data: profileData } = await supabase
         .from('employees')
         .select('hourly_rate')
         .eq('id', profile.id)
         .single();
+      
+      if (profileData?.hourly_rate) {
+        hourlyRate = profileData.hourly_rate;
+      }
 
       // Calculate stats
       const hoursThisWeek = weeklyHours?.reduce((sum, h) => sum + h.total_hours, 0) || 0;
       const hoursThisMonth = monthlyHours?.reduce((sum, h) => sum + h.total_hours, 0) || 0;
       const pendingHours = weeklyHours?.filter(h => h.status === 'pending').reduce((sum, h) => sum + h.total_hours, 0) || 0;
       const approvedHours = weeklyHours?.filter(h => h.status === 'approved').reduce((sum, h) => sum + h.total_hours, 0) || 0;
-      const hourlyRate = employeeData?.hourly_rate || 0;
       const totalEarnings = hoursThisMonth * hourlyRate;
       const avgHoursPerDay = hoursThisWeek / 7;
 
@@ -90,7 +93,7 @@ export const PersonalDashboard = () => {
         approvedHours: Math.round(approvedHours * 10) / 10,
         totalEarnings: Math.round(totalEarnings * 100) / 100,
         scheduledToday: todaySchedule?.length || 0,
-        completedTasks: approvedHours > 0 ? 1 : 0, // Simplified metric
+        completedTasks: approvedHours > 0 ? 1 : 0,
         avgHoursPerDay: Math.round(avgHoursPerDay * 10) / 10
       });
     } catch (error) {
@@ -109,7 +112,7 @@ export const PersonalDashboard = () => {
           clients(company),
           projects(name)
         `)
-        .eq('employee_id', profile.id)
+        .eq('profile_id', profile.id)
         .order('created_at', { ascending: false })
         .limit(5);
 
@@ -144,7 +147,7 @@ export const PersonalDashboard = () => {
           projects(name),
           clients(company)
         `)
-        .eq('employee_id', profile.id)
+        .eq('profile_id', profile.id)
         .gte('date', tomorrow.toISOString().split('T')[0])
         .lte('date', nextWeek.toISOString().split('T')[0])
         .order('date', { ascending: true })
