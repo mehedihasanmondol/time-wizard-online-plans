@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,20 +8,20 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Search, Edit, Trash2, Calculator } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { Employee, Payroll, WorkingHour } from "@/types/database";
+import { Profile, Payroll, WorkingHour } from "@/types/database";
 import { useToast } from "@/hooks/use-toast";
 
 export const PayrollComponent = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [payrolls, setPayrolls] = useState<Payroll[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingPayroll, setEditingPayroll] = useState<Payroll | null>(null);
   const { toast } = useToast();
 
   const [formData, setFormData] = useState({
-    employee_id: "",
+    profile_id: "",
     pay_period_start: "",
     pay_period_end: "",
     total_hours: 0,
@@ -35,21 +34,21 @@ export const PayrollComponent = () => {
 
   useEffect(() => {
     fetchPayrolls();
-    fetchEmployees();
+    fetchProfiles();
   }, []);
 
-  const fetchEmployees = async () => {
+  const fetchProfiles = async () => {
     try {
       const { data, error } = await supabase
-        .from('employees')
+        .from('profiles')
         .select('*')
-        .eq('status', 'active')
-        .order('name');
+        .eq('is_active', true)
+        .order('full_name');
 
       if (error) throw error;
-      setEmployees((data || []) as Employee[]);
+      setProfiles((data || []) as Profile[]);
     } catch (error) {
-      console.error('Error fetching employees:', error);
+      console.error('Error fetching profiles:', error);
     }
   };
 
@@ -59,7 +58,7 @@ export const PayrollComponent = () => {
         .from('payroll')
         .select(`
           *,
-          employees (id, name, hourly_rate)
+          profiles (id, full_name, role)
         `)
         .order('created_at', { ascending: false });
 
@@ -77,36 +76,37 @@ export const PayrollComponent = () => {
     }
   };
 
-  const calculatePayrollFromHours = async (employeeId: string, startDate: string, endDate: string) => {
+  const calculatePayrollFromHours = async (profileId: string, startDate: string, endDate: string) => {
     try {
       const { data: workingHours, error } = await supabase
         .from('working_hours')
         .select('*')
-        .eq('employee_id', employeeId)
+        .eq('profile_id', profileId)
         .eq('status', 'approved')
         .gte('date', startDate)
         .lte('date', endDate);
 
       if (error) throw error;
 
-      const employee = employees.find(emp => emp.id === employeeId);
-      if (!employee) return;
+      const profile = profiles.find(emp => emp.id === profileId);
+      if (!profile) return;
 
       const totalHours = (workingHours || []).reduce((sum, wh) => sum + (wh.total_hours || 0), 0);
-      const grossPay = totalHours * employee.hourly_rate;
+      const hourlyRate = 25; // Default hourly rate
+      const grossPay = totalHours * hourlyRate;
       const netPay = grossPay - formData.deductions;
 
       setFormData(prev => ({
         ...prev,
         total_hours: totalHours,
-        hourly_rate: employee.hourly_rate,
+        hourly_rate: hourlyRate,
         gross_pay: grossPay,
         net_pay: netPay
       }));
 
       toast({
         title: "Calculated",
-        description: `Found ${totalHours} approved hours for ${employee.name}`
+        description: `Found ${totalHours} approved hours for ${profile.full_name}`
       });
     } catch (error) {
       console.error('Error calculating payroll:', error);
@@ -143,7 +143,7 @@ export const PayrollComponent = () => {
       setIsDialogOpen(false);
       setEditingPayroll(null);
       setFormData({
-        employee_id: "",
+        profile_id: "",
         pay_period_start: "",
         pay_period_end: "",
         total_hours: 0,
@@ -169,7 +169,7 @@ export const PayrollComponent = () => {
   const handleEdit = (payroll: Payroll) => {
     setEditingPayroll(payroll);
     setFormData({
-      employee_id: payroll.employee_id,
+      profile_id: payroll.profile_id,
       pay_period_start: payroll.pay_period_start,
       pay_period_end: payroll.pay_period_end,
       total_hours: payroll.total_hours,
@@ -205,7 +205,7 @@ export const PayrollComponent = () => {
   };
 
   const filteredPayrolls = payrolls.filter(payroll =>
-    payroll.employees?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    payroll.profiles?.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     payroll.status.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -222,7 +222,7 @@ export const PayrollComponent = () => {
             <Button className="flex items-center gap-2" onClick={() => {
               setEditingPayroll(null);
               setFormData({
-                employee_id: "",
+                profile_id: "",
                 pay_period_start: "",
                 pay_period_end: "",
                 total_hours: 0,
@@ -244,15 +244,15 @@ export const PayrollComponent = () => {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="employee_id">Employee</Label>
-                  <Select value={formData.employee_id} onValueChange={(value) => setFormData({ ...formData, employee_id: value })}>
+                  <Label htmlFor="profile_id">Profile</Label>
+                  <Select value={formData.profile_id} onValueChange={(value) => setFormData({ ...formData, profile_id: value })}>
                     <SelectTrigger>
-                      <SelectValue placeholder="Select employee" />
+                      <SelectValue placeholder="Select profile" />
                     </SelectTrigger>
                     <SelectContent>
-                      {employees.map((employee) => (
-                        <SelectItem key={employee.id} value={employee.id}>
-                          {employee.name} - ${employee.hourly_rate}/hr
+                      {profiles.map((profile) => (
+                        <SelectItem key={profile.id} value={profile.id}>
+                          {profile.full_name} - {profile.role}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -296,11 +296,11 @@ export const PayrollComponent = () => {
                 </div>
               </div>
 
-              {formData.employee_id && formData.pay_period_start && formData.pay_period_end && (
+              {formData.profile_id && formData.pay_period_start && formData.pay_period_end && (
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => calculatePayrollFromHours(formData.employee_id, formData.pay_period_start, formData.pay_period_end)}
+                  onClick={() => calculatePayrollFromHours(formData.profile_id, formData.pay_period_start, formData.pay_period_end)}
                   className="w-full"
                 >
                   <Calculator className="h-4 w-4 mr-2" />
@@ -429,7 +429,7 @@ export const PayrollComponent = () => {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-200">
-                  <th className="text-left py-3 px-4 font-medium text-gray-600">Employee</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-600">Profile</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-600">Period</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-600">Hours</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-600">Rate</th>
@@ -442,7 +442,7 @@ export const PayrollComponent = () => {
               <tbody>
                 {filteredPayrolls.map((payroll) => (
                   <tr key={payroll.id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="py-3 px-4 font-medium text-gray-900">{payroll.employees?.name}</td>
+                    <td className="py-3 px-4 font-medium text-gray-900">{payroll.profiles?.full_name}</td>
                     <td className="py-3 px-4 text-gray-600">
                       {new Date(payroll.pay_period_start).toLocaleDateString()} - {new Date(payroll.pay_period_end).toLocaleDateString()}
                     </td>

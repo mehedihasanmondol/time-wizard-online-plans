@@ -66,17 +66,8 @@ export const PersonalDashboard = () => {
         .eq('profile_id', profile.id)
         .eq('date', todayString);
 
-      // Get hourly rate from employees table (temporarily until migration complete)
-      let hourlyRate = 25; // default
-      const { data: profileData } = await supabase
-        .from('employees')
-        .select('hourly_rate')
-        .eq('id', profile.id)
-        .single();
-      
-      if (profileData?.hourly_rate) {
-        hourlyRate = profileData.hourly_rate;
-      }
+      // Default hourly rate
+      let hourlyRate = 25;
 
       // Calculate stats
       const hoursThisWeek = weeklyHours?.reduce((sum, h) => sum + h.total_hours, 0) || 0;
