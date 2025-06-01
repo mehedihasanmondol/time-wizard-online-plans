@@ -8,14 +8,14 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Minus, Wallet, TrendingUp, TrendingDown } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { BankTransaction, Client, Project, Employee } from "@/types/database";
+import { BankTransaction, Client, Project, Profile } from "@/types/database";
 import { useToast } from "@/hooks/use-toast";
 
 export const BankBalance = () => {
   const [transactions, setTransactions] = useState<BankTransaction[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [transactionType, setTransactionType] = useState<"deposit" | "withdrawal">("deposit");
@@ -28,14 +28,14 @@ export const BankBalance = () => {
     date: new Date().toISOString().split('T')[0],
     client_id: "",
     project_id: "",
-    employee_id: ""
+    profile_id: ""
   });
 
   useEffect(() => {
     fetchTransactions();
     fetchClients();
     fetchProjects();
-    fetchEmployees();
+    fetchProfiles();
   }, []);
 
   const fetchTransactions = async () => {
@@ -46,7 +46,7 @@ export const BankBalance = () => {
           *,
           clients (id, company),
           projects (id, name),
-          employees (id, name)
+          profiles (id, full_name)
         `)
         .order('date', { ascending: false });
 
@@ -94,18 +94,18 @@ export const BankBalance = () => {
     }
   };
 
-  const fetchEmployees = async () => {
+  const fetchProfiles = async () => {
     try {
       const { data, error } = await supabase
-        .from('employees')
+        .from('profiles')
         .select('*')
-        .eq('status', 'active')
-        .order('name');
+        .eq('is_active', true)
+        .order('full_name');
 
       if (error) throw error;
-      setEmployees((data || []) as Employee[]);
+      setProfiles((data || []) as Profile[]);
     } catch (error) {
-      console.error('Error fetching employees:', error);
+      console.error('Error fetching profiles:', error);
     }
   };
 
@@ -122,7 +122,7 @@ export const BankBalance = () => {
         date: formData.date,
         client_id: formData.client_id || null,
         project_id: formData.project_id || null,
-        employee_id: formData.employee_id || null
+        profile_id: formData.profile_id || null
       };
 
       const { error } = await supabase
@@ -140,7 +140,7 @@ export const BankBalance = () => {
         date: new Date().toISOString().split('T')[0],
         client_id: "",
         project_id: "",
-        employee_id: ""
+        profile_id: ""
       });
       fetchTransactions();
     } catch (error) {
@@ -164,7 +164,7 @@ export const BankBalance = () => {
       date: new Date().toISOString().split('T')[0],
       client_id: "",
       project_id: "",
-      employee_id: ""
+      profile_id: ""
     });
     setIsDialogOpen(true);
   };
@@ -177,8 +177,8 @@ export const BankBalance = () => {
     return transaction.projects?.name || "-";
   };
 
-  const getEmployeeName = (transaction: BankTransaction) => {
-    return transaction.employees?.name || "-";
+  const getProfileName = (transaction: BankTransaction) => {
+    return transaction.profiles?.full_name || "-";
   };
 
   const totalDeposits = transactions
@@ -295,16 +295,16 @@ export const BankBalance = () => {
               </Select>
             </div>
             <div>
-              <Label htmlFor="employee_id">Employee (Optional)</Label>
-              <Select value={formData.employee_id} onValueChange={(value) => setFormData({ ...formData, employee_id: value === "none" ? "" : value })}>
+              <Label htmlFor="profile_id">Profile (Optional)</Label>
+              <Select value={formData.profile_id} onValueChange={(value) => setFormData({ ...formData, profile_id: value === "none" ? "" : value })}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select employee" />
+                  <SelectValue placeholder="Select profile" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">No Employee</SelectItem>
-                  {employees.map((employee) => (
-                    <SelectItem key={employee.id} value={employee.id}>
-                      {employee.name}
+                  <SelectItem value="none">No Profile</SelectItem>
+                  {profiles.map((profile) => (
+                    <SelectItem key={profile.id} value={profile.id}>
+                      {profile.full_name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -382,7 +382,7 @@ export const BankBalance = () => {
                   <th className="text-left py-3 px-4 font-medium text-gray-600">Category</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-600">Client</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-600">Project</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-600">Employee</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-600">Profile</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-600">Type</th>
                   <th className="text-right py-3 px-4 font-medium text-gray-600">Amount</th>
                 </tr>
@@ -395,7 +395,7 @@ export const BankBalance = () => {
                     <td className="py-3 px-4 text-gray-600">{transaction.category}</td>
                     <td className="py-3 px-4 text-gray-600">{getClientName(transaction)}</td>
                     <td className="py-3 px-4 text-gray-600">{getProjectName(transaction)}</td>
-                    <td className="py-3 px-4 text-gray-600">{getEmployeeName(transaction)}</td>
+                    <td className="py-3 px-4 text-gray-600">{getProfileName(transaction)}</td>
                     <td className="py-3 px-4">
                       <Badge 
                         variant={transaction.type === "deposit" ? "default" : "secondary"}

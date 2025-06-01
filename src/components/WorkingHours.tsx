@@ -7,16 +7,16 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Search, Clock } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { WorkingHour, Employee, Client, Project } from "@/types/database";
+import { WorkingHour, Profile, Client, Project } from "@/types/database";
 import { useToast } from "@/hooks/use-toast";
 
 export const WorkingHours = () => {
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterEmployee, setFilterEmployee] = useState("all");
+  const [filterProfile, setFilterProfile] = useState("all");
   const [filterClient, setFilterClient] = useState("all");
   
   const [workingHours, setWorkingHours] = useState<WorkingHour[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -24,7 +24,7 @@ export const WorkingHours = () => {
   const { toast } = useToast();
 
   const [formData, setFormData] = useState({
-    employee_id: "",
+    profile_id: "",
     client_id: "",
     project_id: "",
     date: "",
@@ -34,7 +34,7 @@ export const WorkingHours = () => {
 
   useEffect(() => {
     fetchWorkingHours();
-    fetchEmployees();
+    fetchProfiles();
     fetchClients();
     fetchProjects();
   }, []);
@@ -45,14 +45,13 @@ export const WorkingHours = () => {
         .from('working_hours')
         .select(`
           *,
-          employees (id, name),
+          profiles (id, full_name),
           clients (id, company),
           projects (id, name)
         `)
         .order('date', { ascending: false });
 
       if (error) throw error;
-      // Type cast the data to ensure proper typing
       setWorkingHours((data || []) as WorkingHour[]);
     } catch (error) {
       console.error('Error fetching working hours:', error);
@@ -66,19 +65,18 @@ export const WorkingHours = () => {
     }
   };
 
-  const fetchEmployees = async () => {
+  const fetchProfiles = async () => {
     try {
       const { data, error } = await supabase
-        .from('employees')
+        .from('profiles')
         .select('*')
-        .eq('status', 'active')
-        .order('name');
+        .eq('is_active', true)
+        .order('full_name');
 
       if (error) throw error;
-      // Type cast the data to ensure proper typing
-      setEmployees((data || []) as Employee[]);
+      setProfiles((data || []) as Profile[]);
     } catch (error) {
-      console.error('Error fetching employees:', error);
+      console.error('Error fetching profiles:', error);
     }
   };
 
@@ -91,7 +89,6 @@ export const WorkingHours = () => {
         .order('company');
 
       if (error) throw error;
-      // Type cast the data to ensure proper typing
       setClients((data || []) as Client[]);
     } catch (error) {
       console.error('Error fetching clients:', error);
@@ -107,7 +104,6 @@ export const WorkingHours = () => {
         .order('name');
 
       if (error) throw error;
-      // Type cast the data to ensure proper typing
       setProjects((data || []) as Project[]);
     } catch (error) {
       console.error('Error fetching projects:', error);
@@ -139,7 +135,7 @@ export const WorkingHours = () => {
       toast({ title: "Success", description: "Working hours logged successfully" });
       
       setIsDialogOpen(false);
-      setFormData({ employee_id: "", client_id: "", project_id: "", date: "", start_time: "", end_time: "" });
+      setFormData({ profile_id: "", client_id: "", project_id: "", date: "", start_time: "", end_time: "" });
       fetchWorkingHours();
     } catch (error) {
       console.error('Error saving working hours:', error);
@@ -154,13 +150,13 @@ export const WorkingHours = () => {
   };
 
   const filteredHours = workingHours.filter(hour => {
-    const matchesSearch = hour.employees?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         hour.clients?.company.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         hour.projects?.name.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesEmployee = filterEmployee === "all" || hour.employee_id === filterEmployee;
+    const matchesSearch = hour.profiles?.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         hour.clients?.company?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         hour.projects?.name?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesProfile = filterProfile === "all" || hour.profile_id === filterProfile;
     const matchesClient = filterClient === "all" || hour.client_id === filterClient;
     
-    return matchesSearch && matchesEmployee && matchesClient;
+    return matchesSearch && matchesProfile && matchesClient;
   });
 
   const totalHours = filteredHours.reduce((sum, hour) => sum + hour.total_hours, 0);
@@ -177,7 +173,7 @@ export const WorkingHours = () => {
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
             <Button className="flex items-center gap-2" onClick={() => {
-              setFormData({ employee_id: "", client_id: "", project_id: "", date: "", start_time: "", end_time: "" });
+              setFormData({ profile_id: "", client_id: "", project_id: "", date: "", start_time: "", end_time: "" });
             }}>
               <Plus className="h-4 w-4" />
               Log Hours
@@ -189,15 +185,15 @@ export const WorkingHours = () => {
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <Label htmlFor="employee_id">Employee</Label>
-                <Select value={formData.employee_id} onValueChange={(value) => setFormData({ ...formData, employee_id: value })}>
+                <Label htmlFor="profile_id">Profile</Label>
+                <Select value={formData.profile_id} onValueChange={(value) => setFormData({ ...formData, profile_id: value })}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select employee" />
+                    <SelectValue placeholder="Select profile" />
                   </SelectTrigger>
                   <SelectContent>
-                    {employees.map((employee) => (
-                      <SelectItem key={employee.id} value={employee.id}>
-                        {employee.name}
+                    {profiles.map((profile) => (
+                      <SelectItem key={profile.id} value={profile.id}>
+                        {profile.full_name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -319,15 +315,15 @@ export const WorkingHours = () => {
                   className="pl-10"
                 />
               </div>
-              <Select value={filterEmployee} onValueChange={setFilterEmployee}>
+              <Select value={filterProfile} onValueChange={setFilterProfile}>
                 <SelectTrigger className="w-40">
-                  <SelectValue placeholder="Employee" />
+                  <SelectValue placeholder="Profile" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Employees</SelectItem>
-                  {employees.map((employee) => (
-                    <SelectItem key={employee.id} value={employee.id}>
-                      {employee.name}
+                  <SelectItem value="all">All Profiles</SelectItem>
+                  {profiles.map((profile) => (
+                    <SelectItem key={profile.id} value={profile.id}>
+                      {profile.full_name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -353,7 +349,7 @@ export const WorkingHours = () => {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-200">
-                  <th className="text-left py-3 px-4 font-medium text-gray-600">Employee</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-600">Profile</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-600">Client</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-600">Project</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-600">Date</th>
@@ -366,7 +362,7 @@ export const WorkingHours = () => {
               <tbody>
                 {filteredHours.map((hour) => (
                   <tr key={hour.id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="py-3 px-4 font-medium text-gray-900">{hour.employees?.name}</td>
+                    <td className="py-3 px-4 font-medium text-gray-900">{hour.profiles?.full_name}</td>
                     <td className="py-3 px-4 text-gray-600">{hour.clients?.company}</td>
                     <td className="py-3 px-4 text-gray-600">{hour.projects?.name}</td>
                     <td className="py-3 px-4 text-gray-600">{hour.date}</td>
