@@ -4,9 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FileText, Printer, Download, Eye, Calendar, DollarSign } from "lucide-react";
+import { FileText, Printer, Download, Eye, Calendar, DollarSign, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { Payroll, Profile } from "@/types/database";
+import { Payroll, Profile, BankAccount } from "@/types/database";
 import { useToast } from "@/hooks/use-toast";
 import { SalarySheetPrintView } from "./SalarySheetPrintView";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -23,11 +23,26 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedSheet, setSelectedSheet] = useState<Payroll[] | null>(null);
   const [showPrintView, setShowPrintView] = useState(false);
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const { toast } = useToast();
 
   useEffect(() => {
     groupPayrollsByPeriod();
+    fetchBankAccounts();
   }, [payrolls]);
+
+  const fetchBankAccounts = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('bank_accounts')
+        .select('*');
+
+      if (error) throw error;
+      setBankAccounts(data || []);
+    } catch (error) {
+      console.error('Error fetching bank accounts:', error);
+    }
+  };
 
   const groupPayrollsByPeriod = () => {
     const grouped: Record<string, Payroll[]> = {};
@@ -94,7 +109,22 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
     });
   };
 
-  const updatePayrollStatus = async (payrollId: string, status: 'pending' | 'approved' | 'paid') => {
+  const createNotification = async (profileId: string, title: string, message: string, type: string, priority: string = 'medium') => {
+    try {
+      await supabase.from('notifications').insert([{
+        title,
+        message,
+        type,
+        recipient_profile_id: profileId,
+        priority,
+        action_type: 'none'
+      }]);
+    } catch (error) {
+      console.error('Error creating notification:', error);
+    }
+  };
+
+  const updatePayrollStatus = async (payrollId: string, status: 'pending' | 'approved' | 'paid', payroll: Payroll) => {
     try {
       const { error } = await supabase
         .from('payroll')
@@ -102,6 +132,70 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
         .eq('id', payrollId);
 
       if (error) throw error;
+
+      // If marking as paid, create bank transaction and update working hours
+      if (status === 'paid') {
+        // Find a primary bank account for the profile
+        const primaryBankAccount = bankAccounts.find(ba => 
+          ba.profile_id === payroll.profile_id && ba.is_primary
+        ) || bankAccounts.find(ba => ba.profile_id === payroll.profile_id);
+
+        if (primaryBankAccount) {
+          // Check if bank has sufficient balance
+          const { data: transactions } = await supabase
+            .from('bank_transactions')
+            .select('amount, type')
+            .eq('bank_account_id', primaryBankAccount.id);
+
+          const currentBalance = (transactions || []).reduce((balance, t) => {
+            return t.type === 'deposit' ? balance + t.amount : balance - t.amount;
+          }, primaryBankAccount.opening_balance);
+
+          if (currentBalance >= payroll.net_pay) {
+            // Create withdrawal transaction
+            await supabase.from('bank_transactions').insert([{
+              description: `Salary payment - ${payroll.profiles?.full_name}`,
+              amount: payroll.net_pay,
+              type: 'withdrawal',
+              category: 'salary',
+              date: new Date().toISOString().split('T')[0],
+              profile_id: payroll.profile_id,
+              bank_account_id: primaryBankAccount.id
+            }]);
+
+            // Update related working hours to paid
+            await supabase
+              .from('working_hours')
+              .update({ status: 'paid' })
+              .eq('profile_id', payroll.profile_id)
+              .gte('date', payroll.pay_period_start)
+              .lte('date', payroll.pay_period_end)
+              .eq('status', 'approved');
+
+            // Create payment notification
+            await createNotification(
+              payroll.profile_id,
+              'Salary Paid',
+              `Your salary of $${payroll.net_pay.toFixed(2)} has been paid to your bank account`,
+              'salary_paid',
+              'high'
+            );
+          } else {
+            toast({
+              title: "Error",
+              description: "Insufficient bank balance for this payment",
+              variant: "destructive"
+            });
+            return;
+          }
+        } else {
+          toast({
+            title: "Warning",
+            description: "No bank account found for this employee. Payment status updated but no transaction created.",
+            variant: "destructive"
+          });
+        }
+      }
       
       toast({
         title: "Success",
@@ -114,6 +208,40 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
       toast({
         title: "Error",
         description: "Failed to update payroll status",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const deletePayroll = async (payrollId: string, payroll: Payroll) => {
+    if (payroll.status === 'paid') {
+      toast({
+        title: "Error",
+        description: "Cannot delete paid payroll records",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('payroll')
+        .delete()
+        .eq('id', payrollId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Payroll record deleted successfully"
+      });
+
+      onRefresh();
+    } catch (error: any) {
+      console.error('Error deleting payroll:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete payroll record",
         variant: "destructive"
       });
     }
@@ -259,19 +387,28 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
                         <td className="py-3 px-4">
                           <div className="flex gap-1">
                             {payroll.status === 'pending' && (
-                              <Button 
-                                size="sm" 
-                                variant="outline"
-                                onClick={() => updatePayrollStatus(payroll.id, 'approved')}
-                              >
-                                Approve
-                              </Button>
+                              <>
+                                <Button 
+                                  size="sm" 
+                                  variant="outline"
+                                  onClick={() => updatePayrollStatus(payroll.id, 'approved', payroll)}
+                                >
+                                  Approve
+                                </Button>
+                                <Button 
+                                  size="sm" 
+                                  variant="outline"
+                                  onClick={() => deletePayroll(payroll.id, payroll)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </>
                             )}
                             {payroll.status === 'approved' && (
                               <Button 
                                 size="sm" 
                                 variant="outline"
-                                onClick={() => updatePayrollStatus(payroll.id, 'paid')}
+                                onClick={() => updatePayrollStatus(payroll.id, 'paid', payroll)}
                               >
                                 Mark Paid
                               </Button>
