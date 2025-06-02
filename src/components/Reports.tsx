@@ -56,15 +56,24 @@ export const Reports = () => {
         .from('working_hours')
         .select(`
           *,
-          profiles (id, full_name, role),
-          clients (id, company),
-          projects (id, name)
+          profiles!working_hours_profile_id_fkey (id, full_name, role),
+          clients!working_hours_client_id_fkey (id, company),
+          projects!working_hours_project_id_fkey (id, name)
         `)
         .gte('date', dateRange.start)
         .lte('date', dateRange.end);
 
       if (hoursError) throw hoursError;
-      setWorkingHours((hoursData || []) as WorkingHour[]);
+      
+      // Handle the data safely with proper type checking
+      const workingHoursData = (hoursData || []).map(wh => ({
+        ...wh,
+        profiles: Array.isArray(wh.profiles) ? wh.profiles[0] : wh.profiles,
+        clients: Array.isArray(wh.clients) ? wh.clients[0] : wh.clients,
+        projects: Array.isArray(wh.projects) ? wh.projects[0] : wh.projects
+      }));
+      
+      setWorkingHours(workingHoursData as WorkingHour[]);
 
       // Fetch profiles
       const { data: profilesData, error: profilesError } = await supabase
@@ -73,7 +82,7 @@ export const Reports = () => {
         .eq('is_active', true);
 
       if (profilesError) throw profilesError;
-      setProfiles((profilesData || []) as Profile[]);
+      setProfiles(profilesData as Profile[]);
 
       // Fetch clients
       const { data: clientsData, error: clientsError } = await supabase
@@ -81,7 +90,7 @@ export const Reports = () => {
         .select('*');
 
       if (clientsError) throw clientsError;
-      setClients((clientsData || []) as Client[]);
+      setClients(clientsData as Client[]);
 
       // Fetch projects
       const { data: projectsData, error: projectsError } = await supabase
@@ -89,7 +98,7 @@ export const Reports = () => {
         .select('*');
 
       if (projectsError) throw projectsError;
-      setProjects((projectsData || []) as Project[]);
+      setProjects(projectsData as Project[]);
 
       // Fetch bank transactions
       const { data: transactionsData, error: transactionsError } = await supabase
@@ -99,7 +108,7 @@ export const Reports = () => {
         .lte('date', dateRange.end);
 
       if (transactionsError) throw transactionsError;
-      setTransactions((transactionsData || []) as BankTransaction[]);
+      setTransactions(transactionsData as BankTransaction[]);
 
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -111,8 +120,7 @@ export const Reports = () => {
   const totalHours = workingHours.reduce((sum, wh) => sum + wh.total_hours, 0);
   const activeProfiles = profiles.filter(p => p.is_active).length;
   const totalPayroll = workingHours.reduce((sum, wh) => {
-    // Temporarily use a default rate until we add hourly_rate to profiles
-    const hourlyRate = 25; // Default rate
+    const hourlyRate = wh.profiles?.hourly_rate || 25;
     return sum + (wh.total_hours * hourlyRate);
   }, 0);
   const activeProjects = projects.filter(p => p.status === 'active').length;
@@ -308,7 +316,7 @@ export const Reports = () => {
                 {profiles.map((profile) => {
                   const profileHours = workingHours.filter(wh => wh.profile_id === profile.id);
                   const totalHours = profileHours.reduce((sum, wh) => sum + wh.total_hours, 0);
-                  const hourlyRate = 25; // Default rate until we add this to profiles table
+                  const hourlyRate = profile.hourly_rate || 25;
                   const totalEarned = totalHours * hourlyRate;
                   const uniqueProjects = [...new Set(profileHours.map(wh => wh.project_id))];
                   

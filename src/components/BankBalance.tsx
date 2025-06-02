@@ -1,42 +1,76 @@
+
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Minus, Wallet, TrendingUp, TrendingDown } from "lucide-react";
+import { Plus, Search, DollarSign } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { BankTransaction, Client, Project, Profile } from "@/types/database";
+import { BankTransaction, BankAccount, Profile, Client, Project } from "@/types/database";
 import { useToast } from "@/hooks/use-toast";
+import { BankBalanceStats } from "@/components/bank/BankBalanceStats";
+import { TransactionForm } from "@/components/bank/TransactionForm";
+import { TransactionTable } from "@/components/bank/TransactionTable";
 
 export const BankBalance = () => {
   const [transactions, setTransactions] = useState<BankTransaction[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [transactionType, setTransactionType] = useState<"deposit" | "withdrawal">("deposit");
+  const [editingTransaction, setEditingTransaction] = useState<BankTransaction | null>(null);
   const { toast } = useToast();
 
   const [formData, setFormData] = useState({
-    description: "",
-    amount: 0,
-    category: "",
-    date: new Date().toISOString().split('T')[0],
     client_id: "",
     project_id: "",
-    profile_id: ""
+    profile_id: "",
+    bank_account_id: "",
+    amount: 0,
+    category: "other" as "income" | "expense" | "transfer" | "salary" | "equipment" | "materials" | "travel" | "office" | "utilities" | "marketing" | "other",
+    description: "",
+    type: "deposit" as "deposit" | "withdrawal",
+    date: new Date().toISOString().split('T')[0]
   });
 
   useEffect(() => {
     fetchTransactions();
+    fetchBankAccounts();
+    fetchProfiles();
     fetchClients();
     fetchProjects();
-    fetchProfiles();
   }, []);
+
+  useEffect(() => {
+    if (editingTransaction) {
+      setFormData({
+        client_id: editingTransaction.client_id || "",
+        project_id: editingTransaction.project_id || "",
+        profile_id: editingTransaction.profile_id || "",
+        bank_account_id: editingTransaction.bank_account_id || "",
+        amount: editingTransaction.amount,
+        category: editingTransaction.category,
+        description: editingTransaction.description,
+        type: editingTransaction.type,
+        date: editingTransaction.date
+      });
+    } else {
+      setFormData({
+        client_id: "",
+        project_id: "",
+        profile_id: "",
+        bank_account_id: "",
+        amount: 0,
+        category: "other",
+        description: "",
+        type: "deposit",
+        date: new Date().toISOString().split('T')[0]
+      });
+    }
+  }, [editingTransaction, isDialogOpen]);
 
   const fetchTransactions = async () => {
     try {
@@ -46,9 +80,10 @@ export const BankBalance = () => {
           *,
           clients (id, company),
           projects (id, name),
-          profiles (id, full_name)
+          profiles (id, full_name),
+          bank_accounts (id, bank_name, account_number)
         `)
-        .order('date', { ascending: false });
+        .order('created_at', { ascending: false });
 
       if (error) throw error;
       setTransactions((data || []) as BankTransaction[]);
@@ -61,6 +96,35 @@ export const BankBalance = () => {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchBankAccounts = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('bank_accounts')
+        .select('*')
+        .order('bank_name');
+
+      if (error) throw error;
+      setBankAccounts(data || []);
+    } catch (error) {
+      console.error('Error fetching bank accounts:', error);
+    }
+  };
+
+  const fetchProfiles = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('is_active', true)
+        .order('full_name');
+
+      if (error) throw error;
+      setProfiles(data || []);
+    } catch (error) {
+      console.error('Error fetching profiles:', error);
     }
   };
 
@@ -94,60 +158,43 @@ export const BankBalance = () => {
     }
   };
 
-  const fetchProfiles = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('is_active', true)
-        .order('full_name');
-
-      if (error) throw error;
-      setProfiles((data || []) as Profile[]);
-    } catch (error) {
-      console.error('Error fetching profiles:', error);
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
       const transactionData = {
-        description: formData.description,
-        amount: formData.amount,
-        type: transactionType,
-        category: formData.category,
-        date: formData.date,
+        ...formData,
         client_id: formData.client_id || null,
         project_id: formData.project_id || null,
         profile_id: formData.profile_id || null
       };
 
-      const { error } = await supabase
-        .from('bank_transactions')
-        .insert([transactionData]);
+      if (editingTransaction) {
+        const { error } = await supabase
+          .from('bank_transactions')
+          .update(transactionData)
+          .eq('id', editingTransaction.id);
 
-      if (error) throw error;
-      toast({ title: "Success", description: "Transaction added successfully" });
-      
+        if (error) throw error;
+        toast({ title: "Success", description: "Transaction updated successfully" });
+      } else {
+        const { error } = await supabase
+          .from('bank_transactions')
+          .insert([transactionData]);
+
+        if (error) throw error;
+        toast({ title: "Success", description: "Transaction added successfully" });
+      }
+
       setIsDialogOpen(false);
-      setFormData({ 
-        description: "", 
-        amount: 0, 
-        category: "", 
-        date: new Date().toISOString().split('T')[0],
-        client_id: "",
-        project_id: "",
-        profile_id: ""
-      });
+      setEditingTransaction(null);
       fetchTransactions();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving transaction:', error);
       toast({
         title: "Error",
-        description: "Failed to save transaction",
+        description: error.message || "Failed to save transaction",
         variant: "destructive"
       });
     } finally {
@@ -155,41 +202,44 @@ export const BankBalance = () => {
     }
   };
 
-  const openDialog = (type: "deposit" | "withdrawal") => {
-    setTransactionType(type);
-    setFormData({ 
-      description: "", 
-      amount: 0, 
-      category: "", 
-      date: new Date().toISOString().split('T')[0],
-      client_id: "",
-      project_id: "",
-      profile_id: ""
-    });
+  const handleEdit = (transaction: BankTransaction) => {
+    setEditingTransaction(transaction);
     setIsDialogOpen(true);
   };
 
-  const getClientName = (transaction: BankTransaction) => {
-    return transaction.clients?.company || "-";
+  const handleDelete = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this transaction?')) return;
+
+    try {
+      const { error } = await supabase
+        .from('bank_transactions')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      
+      toast({ title: "Success", description: "Transaction deleted successfully" });
+      fetchTransactions();
+    } catch (error: any) {
+      console.error('Error deleting transaction:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete transaction",
+        variant: "destructive"
+      });
+    }
   };
 
-  const getProjectName = (transaction: BankTransaction) => {
-    return transaction.projects?.name || "-";
-  };
+  const filteredTransactions = transactions.filter(transaction =>
+    transaction.description.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
-  const getProfileName = (transaction: BankTransaction) => {
-    return transaction.profiles?.full_name || "-";
-  };
+  const totalBalance = transactions.reduce((sum, transaction) => {
+    return transaction.type === 'deposit' ? sum + transaction.amount : sum - transaction.amount;
+  }, 0);
 
-  const totalDeposits = transactions
-    .filter(t => t.type === "deposit")
-    .reduce((sum, t) => sum + t.amount, 0);
-
-  const totalWithdrawals = transactions
-    .filter(t => t.type === "withdrawal")
-    .reduce((sum, t) => sum + t.amount, 0);
-
-  const currentBalance = totalDeposits - totalWithdrawals;
+  const totalIncome = transactions.filter(t => t.type === 'deposit').reduce((sum, t) => sum + t.amount, 0);
+  const totalExpense = transactions.filter(t => t.type === 'withdrawal').reduce((sum, t) => sum + t.amount, 0);
 
   if (loading && transactions.length === 0) {
     return <div className="flex justify-center items-center h-64">Loading...</div>;
@@ -198,222 +248,69 @@ export const BankBalance = () => {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-gray-900">Bank Balance</h1>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" className="flex items-center gap-2" onClick={() => openDialog("deposit")}>
-            <Plus className="h-4 w-4" />
-            Add Deposit
-          </Button>
-          <Button variant="outline" className="flex items-center gap-2" onClick={() => openDialog("withdrawal")}>
-            <Minus className="h-4 w-4" />
-            Add Withdrawal
-          </Button>
+        <div className="flex items-center gap-3">
+          <DollarSign className="h-8 w-8 text-green-600" />
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Bank Balance</h1>
+            <p className="text-gray-600">Track income and expenses</p>
+          </div>
         </div>
-      </div>
-
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add {transactionType === "deposit" ? "Deposit" : "Withdrawal"}</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <Label htmlFor="description">Description</Label>
-              <Input
-                id="description"
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                required
-              />
-            </div>
-            <div>
-              <Label htmlFor="amount">Amount</Label>
-              <Input
-                id="amount"
-                type="number"
-                step="0.01"
-                value={formData.amount}
-                onChange={(e) => setFormData({ ...formData, amount: parseFloat(e.target.value) || 0 })}
-                required
-              />
-            </div>
-            <div>
-              <Label htmlFor="category">Category</Label>
-              <Select value={formData.category} onValueChange={(value) => setFormData({ ...formData, category: value })}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {transactionType === "deposit" ? (
-                    <>
-                      <SelectItem value="Revenue">Revenue</SelectItem>
-                      <SelectItem value="Investment">Investment</SelectItem>
-                      <SelectItem value="Other Income">Other Income</SelectItem>
-                    </>
-                  ) : (
-                    <>
-                      <SelectItem value="Payroll">Payroll</SelectItem>
-                      <SelectItem value="Expenses">Expenses</SelectItem>
-                      <SelectItem value="Technology">Technology</SelectItem>
-                      <SelectItem value="Office">Office</SelectItem>
-                      <SelectItem value="Other">Other</SelectItem>
-                    </>
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="client_id">Client (Optional)</Label>
-              <Select value={formData.client_id} onValueChange={(value) => setFormData({ ...formData, client_id: value === "none" ? "" : value })}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select client" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No Client</SelectItem>
-                  {clients.map((client) => (
-                    <SelectItem key={client.id} value={client.id}>
-                      {client.company}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="project_id">Project (Optional)</Label>
-              <Select value={formData.project_id} onValueChange={(value) => setFormData({ ...formData, project_id: value === "none" ? "" : value })}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select project" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No Project</SelectItem>
-                  {projects.filter(p => !formData.client_id || p.client_id === formData.client_id).map((project) => (
-                    <SelectItem key={project.id} value={project.id}>
-                      {project.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="profile_id">Profile (Optional)</Label>
-              <Select value={formData.profile_id} onValueChange={(value) => setFormData({ ...formData, profile_id: value === "none" ? "" : value })}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select profile" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No Profile</SelectItem>
-                  {profiles.map((profile) => (
-                    <SelectItem key={profile.id} value={profile.id}>
-                      {profile.full_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="date">Date</Label>
-              <Input
-                id="date"
-                type="date"
-                value={formData.date}
-                onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                required
-              />
-            </div>
-            <Button type="submit" disabled={loading}>
-              {loading ? "Saving..." : `Add ${transactionType}`}
+        <Dialog open={isDialogOpen} onOpenChange={(open) => {
+          setIsDialogOpen(open);
+          if (!open) setEditingTransaction(null);
+        }}>
+          <DialogTrigger asChild>
+            <Button>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Transaction
             </Button>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card className="md:col-span-2">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Current Balance</CardTitle>
-            <Wallet className="h-5 w-5 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className={`text-3xl font-bold ${currentBalance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-              ${currentBalance.toLocaleString()}
-            </div>
-            <p className="text-xs text-muted-foreground">As of today</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Total Deposits</CardTitle>
-            <TrendingUp className="h-5 w-5 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">
-              +${totalDeposits.toLocaleString()}
-            </div>
-            <p className="text-xs text-muted-foreground">All time</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Total Withdrawals</CardTitle>
-            <TrendingDown className="h-5 w-5 text-red-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">
-              -${totalWithdrawals.toLocaleString()}
-            </div>
-            <p className="text-xs text-muted-foreground">All time</p>
-          </CardContent>
-        </Card>
+          </DialogTrigger>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>{editingTransaction ? "Edit Transaction" : "Add New Transaction"}</DialogTitle>
+            </DialogHeader>
+            <TransactionForm
+              formData={formData}
+              setFormData={setFormData}
+              onSubmit={handleSubmit}
+              bankAccounts={bankAccounts}
+              profiles={profiles}
+              clients={clients}
+              projects={projects}
+              loading={loading}
+              editingTransaction={editingTransaction}
+            />
+          </DialogContent>
+        </Dialog>
       </div>
+
+      <BankBalanceStats
+        totalBalance={totalBalance}
+        totalIncome={totalIncome}
+        totalExpense={totalExpense}
+      />
 
       <Card>
         <CardHeader>
-          <CardTitle>Recent Transactions</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>Transactions ({filteredTransactions.length})</CardTitle>
+            <div className="relative w-64">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Input
+                placeholder="Search transactions..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="text-left py-3 px-4 font-medium text-gray-600">Date</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-600">Description</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-600">Category</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-600">Client</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-600">Project</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-600">Profile</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-600">Type</th>
-                  <th className="text-right py-3 px-4 font-medium text-gray-600">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {transactions.map((transaction) => (
-                  <tr key={transaction.id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="py-3 px-4 text-gray-600">{transaction.date}</td>
-                    <td className="py-3 px-4 font-medium text-gray-900">{transaction.description}</td>
-                    <td className="py-3 px-4 text-gray-600">{transaction.category}</td>
-                    <td className="py-3 px-4 text-gray-600">{getClientName(transaction)}</td>
-                    <td className="py-3 px-4 text-gray-600">{getProjectName(transaction)}</td>
-                    <td className="py-3 px-4 text-gray-600">{getProfileName(transaction)}</td>
-                    <td className="py-3 px-4">
-                      <Badge 
-                        variant={transaction.type === "deposit" ? "default" : "secondary"}
-                        className={transaction.type === "deposit" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}
-                      >
-                        {transaction.type}
-                      </Badge>
-                    </td>
-                    <td className={`py-3 px-4 text-right font-medium ${
-                      transaction.type === "deposit" ? "text-green-600" : "text-red-600"
-                    }`}>
-                      {transaction.type === "deposit" ? "+" : "-"}${transaction.amount.toLocaleString()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <TransactionTable
+            transactions={filteredTransactions}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+          />
         </CardContent>
       </Card>
     </div>
