@@ -1,6 +1,6 @@
 
-import { SalaryDashboard } from "./salary/SalaryDashboard";
+import { SalarySystemDashboard } from "./salary/SalarySystemDashboard";
 
 export const SalaryManagement = () => {
-  return <SalaryDashboard />;
+  return <SalarySystemDashboard />;
 };
