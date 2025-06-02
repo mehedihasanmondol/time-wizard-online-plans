@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FileText, Printer, Download, Eye, Calendar, DollarSign } from "lucide-react";
+import { FileText, Printer, Download, Eye, Calendar, DollarSign, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Payroll, Profile } from "@/types/database";
 import { useToast } from "@/hooks/use-toast";
@@ -96,6 +96,85 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
 
   const updatePayrollStatus = async (payrollId: string, status: 'pending' | 'approved' | 'paid') => {
     try {
+      const payroll = payrolls.find(p => p.id === payrollId);
+      if (!payroll) throw new Error('Payroll not found');
+
+      // If changing to paid status, check bank balance and create withdrawal
+      if (status === 'paid' && payroll.status !== 'paid') {
+        if (payroll.bank_account_id) {
+          // Check bank balance
+          const { data: bankAccount, error: bankError } = await supabase
+            .from('bank_accounts')
+            .select('opening_balance')
+            .eq('id', payroll.bank_account_id)
+            .single();
+
+          if (bankError) throw bankError;
+
+          // Get current balance by calculating all transactions
+          const { data: transactions, error: transError } = await supabase
+            .from('bank_transactions')
+            .select('amount, type')
+            .eq('bank_account_id', payroll.bank_account_id);
+
+          if (transError) throw transError;
+
+          const currentBalance = bankAccount.opening_balance + 
+            transactions.reduce((sum, t) => sum + (t.type === 'deposit' ? t.amount : -t.amount), 0);
+
+          if (currentBalance < payroll.net_pay) {
+            toast({
+              title: "Insufficient Balance",
+              description: "Bank account does not have sufficient balance for this payment",
+              variant: "destructive"
+            });
+            return;
+          }
+
+          // Create withdrawal transaction
+          const { error: transactionError } = await supabase
+            .from('bank_transactions')
+            .insert({
+              description: `Salary payment for ${payroll.profiles?.full_name} (${payroll.pay_period_start} - ${payroll.pay_period_end})`,
+              amount: payroll.net_pay,
+              type: 'withdrawal',
+              category: 'salary',
+              date: new Date().toISOString().split('T')[0],
+              profile_id: payroll.profile_id,
+              bank_account_id: payroll.bank_account_id
+            });
+
+          if (transactionError) throw transactionError;
+        }
+
+        // Update related working hours to "paid" status
+        const { error: workingHoursError } = await supabase
+          .from('working_hours')
+          .update({ status: 'paid' })
+          .eq('profile_id', payroll.profile_id)
+          .gte('date', payroll.pay_period_start)
+          .lte('date', payroll.pay_period_end)
+          .eq('status', 'approved');
+
+        if (workingHoursError) throw workingHoursError;
+
+        // Send notification for payment
+        const { error: notificationError } = await supabase
+          .from('notifications')
+          .insert({
+            title: 'Salary Payment Processed',
+            message: `Your salary for period ${payroll.pay_period_start} to ${payroll.pay_period_end} has been paid. Amount: $${payroll.net_pay.toFixed(2)}`,
+            type: 'salary_paid',
+            recipient_profile_id: payroll.profile_id,
+            related_id: payroll.id,
+            action_type: 'none',
+            priority: 'high'
+          });
+
+        if (notificationError) console.error('Failed to send notification:', notificationError);
+      }
+
+      // Update payroll status
       const { error } = await supabase
         .from('payroll')
         .update({ status })
@@ -113,7 +192,44 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
       console.error('Error updating payroll status:', error);
       toast({
         title: "Error",
-        description: "Failed to update payroll status",
+        description: error.message || "Failed to update payroll status",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const deletePayroll = async (payrollId: string) => {
+    try {
+      const payroll = payrolls.find(p => p.id === payrollId);
+      if (!payroll) throw new Error('Payroll not found');
+
+      if (payroll.status === 'paid') {
+        toast({
+          title: "Cannot Delete",
+          description: "Cannot delete payroll that has already been paid",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      const { error } = await supabase
+        .from('payroll')
+        .delete()
+        .eq('id', payrollId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Payroll deleted successfully"
+      });
+
+      onRefresh();
+    } catch (error: any) {
+      console.error('Error deleting payroll:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete payroll",
         variant: "destructive"
       });
     }
@@ -259,22 +375,42 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
                         <td className="py-3 px-4">
                           <div className="flex gap-1">
                             {payroll.status === 'pending' && (
-                              <Button 
-                                size="sm" 
-                                variant="outline"
-                                onClick={() => updatePayrollStatus(payroll.id, 'approved')}
-                              >
-                                Approve
-                              </Button>
+                              <>
+                                <Button 
+                                  size="sm" 
+                                  variant="outline"
+                                  onClick={() => updatePayrollStatus(payroll.id, 'approved')}
+                                >
+                                  Approve
+                                </Button>
+                                <Button 
+                                  size="sm" 
+                                  variant="outline"
+                                  onClick={() => deletePayroll(payroll.id)}
+                                  className="text-red-600 hover:text-red-700"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </>
                             )}
                             {payroll.status === 'approved' && (
-                              <Button 
-                                size="sm" 
-                                variant="outline"
-                                onClick={() => updatePayrollStatus(payroll.id, 'paid')}
-                              >
-                                Mark Paid
-                              </Button>
+                              <>
+                                <Button 
+                                  size="sm" 
+                                  variant="outline"
+                                  onClick={() => updatePayrollStatus(payroll.id, 'paid')}
+                                >
+                                  Mark Paid
+                                </Button>
+                                <Button 
+                                  size="sm" 
+                                  variant="outline"
+                                  onClick={() => deletePayroll(payroll.id)}
+                                  className="text-red-600 hover:text-red-700"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </>
                             )}
                             <Dialog>
                               <DialogTrigger asChild>

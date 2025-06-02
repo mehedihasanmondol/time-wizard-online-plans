@@ -4,9 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Calendar, Calculator, DollarSign, Clock, FileText } from "lucide-react";
+import { Calculator, DollarSign } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Profile, WorkingHour, BankAccount } from "@/types/database";
 import { useToast } from "@/hooks/use-toast";
@@ -68,12 +67,12 @@ export const PayrollGenerationWizard = ({ profiles, workingHours, onRefresh }: P
         const profile = profiles.find(p => p.id === profileId);
         if (!profile) continue;
 
-        // Get working hours for this profile in date range
+        // Get working hours for this profile in date range, excluding already paid ones
         const profileHours = workingHours.filter(wh => 
           wh.profile_id === profileId &&
           wh.date >= dateRange.start &&
           wh.date <= dateRange.end &&
-          wh.status === 'approved'
+          wh.status === 'approved' // Only approved hours, excluding paid ones
         );
 
         const totalHours = profileHours.reduce((sum, wh) => sum + wh.total_hours, 0);
@@ -89,19 +88,22 @@ export const PayrollGenerationWizard = ({ profiles, workingHours, onRefresh }: P
         const deductions = grossPay * 0.1;
         const netPay = grossPay - deductions;
 
-        preview.push({
-          profile,
-          totalHours,
-          regularHours,
-          overtimeHours,
-          hourlyRate,
-          regularPay,
-          overtimePay,
-          grossPay,
-          deductions,
-          netPay,
-          workingHours: profileHours
-        });
+        // Only include profiles that have working hours
+        if (totalHours > 0) {
+          preview.push({
+            profile,
+            totalHours,
+            regularHours,
+            overtimeHours,
+            hourlyRate,
+            regularPay,
+            overtimePay,
+            grossPay,
+            deductions,
+            netPay,
+            workingHours: profileHours
+          });
+        }
       }
 
       setPayrollPreview(preview);
@@ -134,11 +136,33 @@ export const PayrollGenerationWizard = ({ profiles, workingHours, onRefresh }: P
         payrollRecords.push(payrollData);
       }
 
-      const { error } = await supabase
+      const { data: createdPayrolls, error } = await supabase
         .from('payroll')
-        .insert(payrollRecords);
+        .insert(payrollRecords)
+        .select('*');
 
       if (error) throw error;
+
+      // Send notifications for each created payroll
+      if (createdPayrolls) {
+        const notifications = createdPayrolls.map(payroll => ({
+          title: 'New Payroll Created',
+          message: `Your payroll for period ${payroll.pay_period_start} to ${payroll.pay_period_end} has been created. Net amount: $${payroll.net_pay.toFixed(2)}`,
+          type: 'payroll_created',
+          recipient_profile_id: payroll.profile_id,
+          related_id: payroll.id,
+          action_type: 'none' as const,
+          priority: 'medium' as const
+        }));
+
+        const { error: notificationError } = await supabase
+          .from('notifications')
+          .insert(notifications);
+
+        if (notificationError) {
+          console.error('Failed to send notifications:', notificationError);
+        }
+      }
 
       toast({
         title: "Success",
@@ -183,7 +207,7 @@ export const PayrollGenerationWizard = ({ profiles, workingHours, onRefresh }: P
                   <div className="lg:col-span-2">
                     <EnhancedProfileSelector
                       profiles={profiles}
-                      workingHours={workingHours}
+                      workingHours={workingHours.filter(wh => wh.status === 'approved')} // Only show approved hours
                       selectedProfileIds={selectedProfileIds}
                       onProfileSelect={setSelectedProfileIds}
                       mode="multiple"
@@ -234,9 +258,9 @@ export const PayrollGenerationWizard = ({ profiles, workingHours, onRefresh }: P
               <div className="flex justify-end">
                 <Button 
                   onClick={() => setStep(2)} 
-                  disabled={selectedProfileIds.length === 0 || !dateRange.start || !dateRange.end}
+                  disabled={selectedProfileIds.length === 0 || !dateRange.start || !dateRange.end || payrollPreview.length === 0}
                 >
-                  Next: Review Payroll
+                  Next: Review Payroll ({payrollPreview.length} employees)
                 </Button>
               </div>
             </div>
@@ -252,51 +276,61 @@ export const PayrollGenerationWizard = ({ profiles, workingHours, onRefresh }: P
                 </div>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-3 px-4 font-medium text-gray-600">Employee</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-600">Hours</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-600">Rate</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-600">Gross Pay</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-600">Deductions</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-600">Net Pay</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {payrollPreview.map((preview) => (
-                      <tr key={preview.profile.id} className="border-b border-gray-100">
-                        <td className="py-3 px-4">
-                          <div>
-                            <div className="font-medium">{preview.profile.full_name}</div>
-                            <div className="text-sm text-gray-600">{preview.profile.role}</div>
-                          </div>
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="text-sm">
-                            <div>Regular: {preview.regularHours.toFixed(1)}h</div>
-                            {preview.overtimeHours > 0 && (
-                              <div className="text-orange-600">Overtime: {preview.overtimeHours.toFixed(1)}h</div>
-                            )}
-                            <div className="font-medium">Total: {preview.totalHours.toFixed(1)}h</div>
-                          </div>
-                        </td>
-                        <td className="py-3 px-4">${preview.hourlyRate.toFixed(2)}/hr</td>
-                        <td className="py-3 px-4">${preview.grossPay.toFixed(2)}</td>
-                        <td className="py-3 px-4 text-red-600">${preview.deductions.toFixed(2)}</td>
-                        <td className="py-3 px-4 font-bold text-green-600">${preview.netPay.toFixed(2)}</td>
+              {payrollPreview.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <p>No approved working hours found for the selected period and profiles.</p>
+                  <p className="text-sm">Please ensure working hours are approved before generating payroll.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-gray-200">
+                        <th className="text-left py-3 px-4 font-medium text-gray-600">Employee</th>
+                        <th className="text-left py-3 px-4 font-medium text-gray-600">Hours</th>
+                        <th className="text-left py-3 px-4 font-medium text-gray-600">Rate</th>
+                        <th className="text-left py-3 px-4 font-medium text-gray-600">Gross Pay</th>
+                        <th className="text-left py-3 px-4 font-medium text-gray-600">Deductions</th>
+                        <th className="text-left py-3 px-4 font-medium text-gray-600">Net Pay</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {payrollPreview.map((preview) => (
+                        <tr key={preview.profile.id} className="border-b border-gray-100">
+                          <td className="py-3 px-4">
+                            <div>
+                              <div className="font-medium">{preview.profile.full_name}</div>
+                              <div className="text-sm text-gray-600">{preview.profile.role}</div>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="text-sm">
+                              <div>Regular: {preview.regularHours.toFixed(1)}h</div>
+                              {preview.overtimeHours > 0 && (
+                                <div className="text-orange-600">Overtime: {preview.overtimeHours.toFixed(1)}h</div>
+                              )}
+                              <div className="font-medium">Total: {preview.totalHours.toFixed(1)}h</div>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4">${preview.hourlyRate.toFixed(2)}/hr</td>
+                          <td className="py-3 px-4">${preview.grossPay.toFixed(2)}</td>
+                          <td className="py-3 px-4 text-red-600">${preview.deductions.toFixed(2)}</td>
+                          <td className="py-3 px-4 font-bold text-green-600">${preview.netPay.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
 
               <div className="flex justify-between">
                 <Button variant="outline" onClick={() => setStep(1)}>
                   Back: Edit Selection
                 </Button>
-                <Button onClick={() => setStep(3)}>
+                <Button 
+                  onClick={() => setStep(3)}
+                  disabled={payrollPreview.length === 0}
+                >
                   Next: Confirm & Generate
                 </Button>
               </div>
@@ -333,7 +367,7 @@ export const PayrollGenerationWizard = ({ profiles, workingHours, onRefresh }: P
                 <Button variant="outline" onClick={() => setStep(2)}>
                   Back: Review Details
                 </Button>
-                <Button onClick={generatePayroll} disabled={loading}>
+                <Button onClick={generatePayroll} disabled={loading || payrollPreview.length === 0}>
                   {loading ? "Generating..." : "Generate Payroll Records"}
                 </Button>
               </div>
