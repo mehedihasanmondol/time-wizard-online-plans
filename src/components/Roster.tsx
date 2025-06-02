@@ -1,18 +1,11 @@
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Plus, Search, Calendar, Clock, Users, DollarSign, CalendarDays } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
-import { Roster as RosterType, Profile, Client, Project, RosterProfile } from "@/types/database";
-import { useToast } from "@/hooks/use-toast";
-import { MultipleProfileSelector } from "@/components/common/MultipleProfileSelector";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Calendar, List, Plus } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
+import { RosterCalendarView } from "./roster/RosterCalendarView";
 
 export const Roster = () => {
   const [searchTerm, setSearchTerm] = useState("");
@@ -22,7 +15,7 @@ export const Roster = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState("calendar"); // Changed default to calendar
+  const [activeTab, setActiveTab] = useState("list"); // Changed default to list
   const { toast } = useToast();
 
   const generateDefaultRosterName = () => {
@@ -556,92 +549,19 @@ export const Roster = () => {
           </div>
         </CardHeader>
         <CardContent>
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <Tabs defaultValue="list" className="space-y-4">
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="calendar">Calendar View</TabsTrigger>
-              <TabsTrigger value="list">List View</TabsTrigger>
+              <TabsTrigger value="list" className="flex items-center gap-2">
+                <List className="h-4 w-4" />
+                List View
+              </TabsTrigger>
+              <TabsTrigger value="calendar" className="flex items-center gap-2">
+                <Calendar className="h-4 w-4" />
+                Calendar View
+              </TabsTrigger>
             </TabsList>
-            
-            <TabsContent value="calendar" className="mt-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {Object.entries(calendarRosters).map(([date, dateRosters]) => (
-                  <div key={date} className="space-y-2">
-                    <div className="flex items-center gap-2 mb-3 border-b pb-2">
-                      <CalendarDays className="h-5 w-5 text-blue-600" />
-                      <h3 className="font-semibold text-gray-900">
-                        {new Date(date).toLocaleDateString('en-US', {
-                          weekday: 'long',
-                          month: 'short',
-                          day: 'numeric'
-                        })}
-                      </h3>
-                      <Badge variant="outline">{dateRosters.length}</Badge>
-                    </div>
-                    {dateRosters.map((roster) => (
-                      <Card key={roster.id} className="border-l-4 border-l-blue-500">
-                        <CardContent className="p-4">
-                          <div className="space-y-2">
-                            <div className="flex items-start justify-between">
-                              <h4 className="font-medium text-sm">{roster.name || 'Unnamed Roster'}</h4>
-                              <Badge variant={
-                                roster.status === "confirmed" ? "default" : 
-                                roster.status === "pending" ? "secondary" : "outline"
-                              } className="text-xs">
-                                {roster.status}
-                              </Badge>
-                            </div>
-                            
-                            <div className="text-xs text-gray-600">
-                              <div className="flex items-center gap-1">
-                                <Clock className="h-3 w-3" />
-                                {roster.start_time} - {roster.end_time}
-                              </div>
-                            </div>
-                            
-                            <div className="text-xs">
-                              <div className="font-medium">{roster.projects?.name}</div>
-                              <div className="text-gray-600">{roster.clients?.company}</div>
-                            </div>
-                            
-                            <div className="flex flex-wrap gap-1">
-                              {roster.roster_profiles?.slice(0, 3).map((rp) => (
-                                <Badge key={rp.id} variant="secondary" className="text-xs">
-                                  {rp.profiles?.full_name}
-                                </Badge>
-                              ))}
-                              {(roster.roster_profiles?.length || 0) > 3 && (
-                                <Badge variant="outline" className="text-xs">
-                                  +{(roster.roster_profiles?.length || 0) - 3} more
-                                </Badge>
-                              )}
-                            </div>
-                            
-                            <div className="grid grid-cols-2 gap-2 text-xs">
-                              <div className="flex items-center gap-1">
-                                <Users className="h-3 w-3 text-blue-600" />
-                                <span>{roster.roster_profiles?.length || 0} assigned</span>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <Clock className="h-3 w-3 text-purple-600" />
-                                <span>{roster.total_hours}h</span>
-                              </div>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                ))}
-              </div>
-              
-              {Object.keys(calendarRosters).length === 0 && (
-                <div className="text-center py-8 text-gray-500">
-                  No rosters found for the selected criteria
-                </div>
-              )}
-            </TabsContent>
-            
-            <TabsContent value="list" className="mt-4">
+
+            <TabsContent value="list">
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
@@ -736,6 +656,27 @@ export const Roster = () => {
                   </tbody>
                 </table>
               </div>
+            </TabsContent>
+
+            <TabsContent value="calendar">
+              <RosterCalendarView
+                rosters={filteredRosters.map(roster => ({
+                  id: roster.id,
+                  name: roster.name,
+                  date: roster.date,
+                  end_date: roster.end_date,
+                  start_time: roster.start_time,
+                  end_time: roster.end_time,
+                  client_name: roster.clients?.name,
+                  project_name: roster.projects?.name,
+                  status: roster.status,
+                  total_hours: roster.total_hours,
+                  expected_profiles: roster.expected_profiles,
+                  assigned_profiles: roster.roster_profiles?.length || 0
+                }))}
+                onDateSelect={(date) => console.log('Selected date:', date)}
+                selectedDate={undefined}
+              />
             </TabsContent>
           </Tabs>
         </CardContent>

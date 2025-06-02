@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,11 +23,25 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedSheet, setSelectedSheet] = useState<Payroll[] | null>(null);
   const [showPrintView, setShowPrintView] = useState(false);
+  const [updatingPayroll, setUpdatingPayroll] = useState<string | null>(null);
+  const scrollPositionRef = useRef<number>(0);
   const { toast } = useToast();
 
   useEffect(() => {
     groupPayrollsByPeriod();
   }, [payrolls]);
+
+  // Save scroll position before updates
+  const saveScrollPosition = () => {
+    scrollPositionRef.current = window.scrollY;
+  };
+
+  // Restore scroll position after updates
+  const restoreScrollPosition = () => {
+    setTimeout(() => {
+      window.scrollTo(0, scrollPositionRef.current);
+    }, 100);
+  };
 
   const groupPayrollsByPeriod = () => {
     const grouped: Record<string, Payroll[]> = {};
@@ -96,6 +110,9 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
 
   const updatePayrollStatus = async (payrollId: string, status: 'pending' | 'approved' | 'paid') => {
     try {
+      saveScrollPosition();
+      setUpdatingPayroll(payrollId);
+      
       const payroll = payrolls.find(p => p.id === payrollId);
       if (!payroll) throw new Error('Payroll not found');
 
@@ -188,6 +205,7 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
       });
       
       onRefresh();
+      restoreScrollPosition();
     } catch (error: any) {
       console.error('Error updating payroll status:', error);
       toast({
@@ -195,11 +213,15 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
         description: error.message || "Failed to update payroll status",
         variant: "destructive"
       });
+    } finally {
+      setUpdatingPayroll(null);
     }
   };
 
   const deletePayroll = async (payrollId: string) => {
     try {
+      saveScrollPosition();
+      
       const payroll = payrolls.find(p => p.id === payrollId);
       if (!payroll) throw new Error('Payroll not found');
 
@@ -225,6 +247,7 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
       });
 
       onRefresh();
+      restoreScrollPosition();
     } catch (error: any) {
       console.error('Error deleting payroll:', error);
       toast({
@@ -380,14 +403,16 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
                                   size="sm" 
                                   variant="outline"
                                   onClick={() => updatePayrollStatus(payroll.id, 'approved')}
+                                  disabled={updatingPayroll === payroll.id}
                                 >
-                                  Approve
+                                  {updatingPayroll === payroll.id ? 'Updating...' : 'Approve'}
                                 </Button>
                                 <Button 
                                   size="sm" 
                                   variant="outline"
                                   onClick={() => deletePayroll(payroll.id)}
                                   className="text-red-600 hover:text-red-700"
+                                  disabled={updatingPayroll === payroll.id}
                                 >
                                   <Trash2 className="h-4 w-4" />
                                 </Button>
@@ -399,14 +424,16 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
                                   size="sm" 
                                   variant="outline"
                                   onClick={() => updatePayrollStatus(payroll.id, 'paid')}
+                                  disabled={updatingPayroll === payroll.id}
                                 >
-                                  Mark Paid
+                                  {updatingPayroll === payroll.id ? 'Processing...' : 'Mark Paid'}
                                 </Button>
                                 <Button 
                                   size="sm" 
                                   variant="outline"
                                   onClick={() => deletePayroll(payroll.id)}
                                   className="text-red-600 hover:text-red-700"
+                                  disabled={updatingPayroll === payroll.id}
                                 >
                                   <Trash2 className="h-4 w-4" />
                                 </Button>
