@@ -40,7 +40,7 @@ export const SalarySystemDashboard = () => {
           profiles!working_hours_profile_id_fkey (id, full_name, role, hourly_rate),
           clients!working_hours_client_id_fkey (id, name, company),
           projects!working_hours_project_id_fkey (id, name)
-        `).eq('status', 'approved').order('date', { ascending: false }),
+        `).order('date', { ascending: false }),
         
         supabase.from('bank_transactions').select(`
           *,
@@ -71,7 +71,7 @@ export const SalarySystemDashboard = () => {
   };
 
   const totalPayroll = payrolls.reduce((sum, p) => sum + p.net_pay, 0);
-  const totalHours = workingHours.reduce((sum, wh) => sum + wh.total_hours, 0);
+  const totalApprovedHours = workingHours.filter(wh => wh.status === 'approved').reduce((sum, wh) => sum + wh.total_hours, 0);
   const totalSalaryTransactions = bankTransactions.reduce((sum, t) => sum + t.amount, 0);
   const pendingPayrolls = payrolls.filter(p => p.status === 'pending').length;
 
@@ -86,7 +86,7 @@ export const SalarySystemDashboard = () => {
           <Calculator className="h-8 w-8 text-green-600" />
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Salary Management System</h1>
-            <p className="text-gray-600">Manage payroll, salary sheets, and reports</p>
+            <p className="text-gray-600">Generate payroll, manage salary sheets, and reports</p>
           </div>
         </div>
       </div>
@@ -106,12 +106,12 @@ export const SalarySystemDashboard = () => {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Total Hours</CardTitle>
+            <CardTitle className="text-sm font-medium text-gray-600">Approved Hours</CardTitle>
             <Calendar className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{totalHours.toFixed(1)}</div>
-            <p className="text-xs text-muted-foreground">Approved hours</p>
+            <div className="text-2xl font-bold text-blue-600">{totalApprovedHours.toFixed(1)}</div>
+            <p className="text-xs text-muted-foreground">Ready for payroll</p>
           </CardContent>
         </Card>
 
@@ -133,16 +133,16 @@ export const SalarySystemDashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-orange-600">{pendingPayrolls}</div>
-            <p className="text-xs text-muted-foreground">Require processing</p>
+            <p className="text-xs text-muted-foreground">Awaiting approval</p>
           </CardContent>
         </Card>
       </div>
 
       <Tabs defaultValue="payroll-generation" className="space-y-4">
         <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="payroll-generation">Payroll Generation</TabsTrigger>
-          <TabsTrigger value="salary-sheets">Salary Sheets</TabsTrigger>
-          <TabsTrigger value="reports">Reports & Analytics</TabsTrigger>
+          <TabsTrigger value="payroll-generation">Step 1: Generate Payroll</TabsTrigger>
+          <TabsTrigger value="salary-sheets">Step 2: Manage Salary Sheets</TabsTrigger>
+          <TabsTrigger value="reports">Step 3: Reports & Analytics</TabsTrigger>
         </TabsList>
 
         <TabsContent value="payroll-generation">

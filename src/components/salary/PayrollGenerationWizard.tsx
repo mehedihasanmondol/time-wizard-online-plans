@@ -4,10 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Calendar, Calculator, Users, DollarSign, Clock, AlertCircle } from "lucide-react";
+import { Calculator, AlertCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { Profile, WorkingHour, BankAccount } from "@/types/database";
+import { Profile, WorkingHour } from "@/types/database";
 import { useToast } from "@/hooks/use-toast";
 import { EnhancedProfileSelector } from "./EnhancedProfileSelector";
 
@@ -23,14 +22,9 @@ export const PayrollGenerationWizard = ({ profiles, workingHours, onRefresh }: P
     start: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     end: new Date().toISOString().split('T')[0]
   });
-  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [loading, setLoading] = useState(false);
   const [previewData, setPreviewData] = useState<any[]>([]);
   const { toast } = useToast();
-
-  useEffect(() => {
-    fetchBankAccounts();
-  }, []);
 
   useEffect(() => {
     if (selectedProfileIds.length > 0) {
@@ -39,20 +33,6 @@ export const PayrollGenerationWizard = ({ profiles, workingHours, onRefresh }: P
       setPreviewData([]);
     }
   }, [selectedProfileIds, dateRange]);
-
-  const fetchBankAccounts = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('bank_accounts')
-        .select('*')
-        .order('bank_name');
-
-      if (error) throw error;
-      setBankAccounts(data || []);
-    } catch (error) {
-      console.error('Error fetching bank accounts:', error);
-    }
-  };
 
   const generatePreview = () => {
     const preview = selectedProfileIds.map(profileId => {
@@ -63,7 +43,7 @@ export const PayrollGenerationWizard = ({ profiles, workingHours, onRefresh }: P
         wh.profile_id === profileId &&
         wh.date >= dateRange.start &&
         wh.date <= dateRange.end &&
-        wh.status !== 'paid'
+        wh.status === 'approved' // Only approved hours, not paid
       );
 
       const totalHours = relevantHours.reduce((sum, wh) => sum + wh.total_hours, 0);
@@ -203,6 +183,7 @@ export const PayrollGenerationWizard = ({ profiles, workingHours, onRefresh }: P
           {/* Profile Selection */}
           <EnhancedProfileSelector
             profiles={profiles}
+            workingHours={workingHours}
             selectedProfileIds={selectedProfileIds}
             onProfileSelect={setSelectedProfileIds}
             mode="multiple"
@@ -235,7 +216,7 @@ export const PayrollGenerationWizard = ({ profiles, workingHours, onRefresh }: P
                           <td className="py-2">
                             <div>
                               <div className="font-medium">{item.profile?.full_name}</div>
-                              <div className="text-sm text-gray-500">{item.workingHoursCount} records</div>
+                              <div className="text-sm text-gray-500">{item.workingHoursCount} approved records</div>
                             </div>
                           </td>
                           <td className="text-right py-2">{item.totalHours.toFixed(1)}</td>
@@ -260,7 +241,7 @@ export const PayrollGenerationWizard = ({ profiles, workingHours, onRefresh }: P
                     <div className="flex items-center gap-2">
                       <AlertCircle className="h-4 w-4 text-yellow-600" />
                       <span className="text-sm text-yellow-800">
-                        Some profiles have 0 hours and will be skipped
+                        Some profiles have 0 approved hours and will be skipped
                       </span>
                     </div>
                   </div>
