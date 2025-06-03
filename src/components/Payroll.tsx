@@ -1,22 +1,26 @@
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import { Plus, DollarSign, Calendar, FileText } from "lucide-react";
+import { Plus, Search, DollarSign, Users, FileText, Calendar } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import type { Payroll as PayrollType, Profile } from "@/types/database";
+import { Payroll as PayrollType, Profile, BankAccount } from "@/types/database";
 import { useToast } from "@/hooks/use-toast";
-import { ProfileSelector } from "@/components/common/ProfileSelector";
+import { PayrollDetailsDialog } from "@/components/salary/PayrollDetailsDialog";
 
-export const PayrollComponent = () => {
+export const Payroll = () => {
+  const [searchTerm, setSearchTerm] = useState("");
   const [payrolls, setPayrolls] = useState<PayrollType[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [selectedPayroll, setSelectedPayroll] = useState<PayrollType | null>(null);
+  const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
   const { toast } = useToast();
 
   const [formData, setFormData] = useState({
@@ -28,12 +32,14 @@ export const PayrollComponent = () => {
     gross_pay: 0,
     deductions: 0,
     net_pay: 0,
-    status: "pending"
+    bank_account_id: "",
+    status: "pending" as const
   });
 
   useEffect(() => {
     fetchPayrolls();
     fetchProfiles();
+    fetchBankAccounts();
   }, []);
 
   const fetchPayrolls = async () => {
@@ -42,7 +48,8 @@ export const PayrollComponent = () => {
         .from('payroll')
         .select(`
           *,
-          profiles!payroll_profile_id_fkey (id, full_name, role, hourly_rate)
+          profiles!payroll_profile_id_fkey (id, full_name, role, hourly_rate),
+          bank_accounts!payroll_bank_account_id_fkey (id, account_number, bank_name)
         `)
         .order('created_at', { ascending: false });
 
@@ -51,7 +58,8 @@ export const PayrollComponent = () => {
       // Handle the data safely with proper type checking
       const payrollData = (data || []).map(payroll => ({
         ...payroll,
-        profiles: Array.isArray(payroll.profiles) ? payroll.profiles[0] : payroll.profiles
+        profiles: Array.isArray(payroll.profiles) ? payroll.profiles[0] : payroll.profiles,
+        bank_accounts: Array.isArray(payroll.bank_accounts) ? payroll.bank_accounts[0] : payroll.bank_accounts
       }));
       
       setPayrolls(payrollData as PayrollType[]);
@@ -82,6 +90,19 @@ export const PayrollComponent = () => {
     }
   };
 
+  const fetchBankAccounts = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('bank_accounts')
+        .select('*');
+
+      if (error) throw error;
+      setBankAccounts(data as BankAccount[]);
+    } catch (error) {
+      console.error('Error fetching bank accounts:', error);
+    }
+  };
+
   const calculatePayroll = (hours: number, rate: number, deductions: number) => {
     const gross = hours * rate;
     const net = gross - deductions;
@@ -98,13 +119,20 @@ export const PayrollComponent = () => {
       const { error } = await supabase
         .from('payroll')
         .insert([{
-          ...formData,
-          gross_pay: gross,
-          net_pay: net
+          profile_id: formData.profile_id,
+          pay_period_start: formData.pay_period_start,
+          pay_period_end: formData.pay_period_end,
+          total_hours: formData.total_hours,
+          hourly_rate: formData.hourly_rate,
+          gross_pay: formData.gross_pay,
+          deductions: formData.deductions,
+          net_pay: formData.net_pay,
+          bank_account_id: formData.bank_account_id || null,
+          status: formData.status
         }]);
 
       if (error) throw error;
-      toast({ title: "Success", description: "Payroll record created successfully" });
+      toast({ title: "Success", description: "Payroll created successfully" });
       
       setIsDialogOpen(false);
       setFormData({
@@ -116,14 +144,15 @@ export const PayrollComponent = () => {
         gross_pay: 0,
         deductions: 0,
         net_pay: 0,
+        bank_account_id: "",
         status: "pending"
       });
       fetchPayrolls();
     } catch (error) {
-      console.error('Error creating payroll:', error);
+      console.error('Error saving payroll:', error);
       toast({
         title: "Error",
-        description: "Failed to create payroll record",
+        description: "Failed to save payroll",
         variant: "destructive"
       });
     } finally {
@@ -294,6 +323,25 @@ export const PayrollComponent = () => {
                     value={formData.deductions}
                     onChange={(e) => setFormData({ ...formData, deductions: parseFloat(e.target.value) || 0 })}
                   />
+                </div>
+
+                <div>
+                  <Label htmlFor="bank_account_id">Bank Account</Label>
+                  <Select
+                    value={formData.bank_account_id}
+                    onValueChange={(value) => setFormData({ ...formData, bank_account_id: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a bank account" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {bankAccounts.map((account) => (
+                        <SelectItem key={account.id} value={account.id}>
+                          {account.account_number} - {account.bank_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 {formData.total_hours > 0 && formData.hourly_rate > 0 && (
