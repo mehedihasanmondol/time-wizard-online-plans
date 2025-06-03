@@ -40,6 +40,7 @@ export const BankBalance = () => {
     { value: "office", label: "Office" },
     { value: "utilities", label: "Utilities" },
     { value: "marketing", label: "Marketing" },
+    { value: "opening_balance", label: "Opening Balance" },
     { value: "other", label: "Other" }
   ];
 
@@ -47,7 +48,7 @@ export const BankBalance = () => {
     bank_account_id: "",
     description: "",
     amount: 0,
-    category: "" as "" | "income" | "expense" | "transfer" | "salary" | "equipment" | "materials" | "travel" | "office" | "utilities" | "marketing" | "other",
+    category: "" as "" | "income" | "expense" | "transfer" | "salary" | "equipment" | "materials" | "travel" | "office" | "utilities" | "marketing" | "opening_balance" | "other",
     date: new Date().toISOString().split('T')[0],
     profile_id: "",
     client_id: "",
@@ -251,26 +252,63 @@ export const BankBalance = () => {
     setLoading(true);
 
     try {
+      const bankAccountData = {
+        bank_name: bankFormData.bank_name,
+        account_number: bankFormData.account_number,
+        bsb_code: bankFormData.bsb_code,
+        swift_code: bankFormData.swift_code,
+        account_holder_name: bankFormData.account_holder_name,
+        opening_balance: 0, // Always set to 0, we'll create a transaction instead
+        is_primary: bankFormData.is_primary
+      };
+
       if (editingBankAccount) {
         const { error } = await supabase
           .from('bank_accounts')
-          .update(bankFormData)
+          .update(bankAccountData)
           .eq('id', editingBankAccount.id);
 
         if (error) throw error;
         toast({ title: "Success", description: "Bank account updated successfully" });
       } else {
-        const { error } = await supabase
+        const { data: newAccount, error } = await supabase
           .from('bank_accounts')
-          .insert([bankFormData]);
+          .insert([bankAccountData])
+          .select()
+          .single();
 
         if (error) throw error;
+
+        // Create opening balance transaction if amount is greater than 0
+        if (bankFormData.opening_balance > 0) {
+          const { error: transactionError } = await supabase
+            .from('bank_transactions')
+            .insert([{
+              bank_account_id: newAccount.id,
+              description: "Opening Balance",
+              amount: bankFormData.opening_balance,
+              type: "deposit" as const,
+              category: "opening_balance" as const,
+              date: new Date().toISOString().split('T')[0]
+            }]);
+
+          if (transactionError) {
+            console.error('Error creating opening balance transaction:', transactionError);
+            toast({
+              title: "Warning",
+              description: "Bank account created but opening balance transaction failed",
+              variant: "destructive"
+            });
+          }
+        }
+
         toast({ title: "Success", description: "Bank account added successfully" });
       }
       
       setIsBankDialogOpen(false);
       resetBankForm();
       fetchBankAccounts();
+      fetchTransactions(); // Refresh transactions to show the opening balance
     } catch (error) {
       console.error('Error saving bank account:', error);
       toast({
@@ -732,6 +770,9 @@ export const BankBalance = () => {
                     value={bankFormData.opening_balance}
                     onChange={(e) => setBankFormData({ ...bankFormData, opening_balance: parseFloat(e.target.value) || 0 })}
                   />
+                  <p className="text-xs text-gray-500 mt-1">
+                    This will create a deposit transaction with "Opening Balance" category
+                  </p>
                 </div>
 
                 <Button type="submit" disabled={loading} className="w-full">
