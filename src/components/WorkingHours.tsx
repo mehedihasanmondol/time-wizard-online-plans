@@ -7,30 +7,28 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Search, Clock, CheckCircle, XCircle, DollarSign, Timer, Edit } from "lucide-react";
+import { Plus, Search, Clock, Calendar, DollarSign } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { WorkingHour, Profile, Client, Project } from "@/types/database";
+import { WorkingHours as WorkingHoursType, Profile, Client, Project } from "@/types/database";
 import { useToast } from "@/hooks/use-toast";
-import { ProfileSelector } from "@/components/common/ProfileSelector";
-import { EditWorkingHoursDialog } from "@/components/EditWorkingHoursDialog";
+import { EditWorkingHoursDialog } from "./EditWorkingHoursDialog";
 
 export const WorkingHoursComponent = () => {
   const [searchTerm, setSearchTerm] = useState("");
-  const [workingHours, setWorkingHours] = useState<WorkingHour[]>([]);
+  const [workingHours, setWorkingHours] = useState<WorkingHoursType[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingWorkingHour, setEditingWorkingHour] = useState<WorkingHour | null>(null);
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editingWorkingHours, setEditingWorkingHours] = useState<WorkingHoursType | null>(null);
   const { toast } = useToast();
 
   const [formData, setFormData] = useState({
     profile_id: "",
     client_id: "",
     project_id: "",
-    date: new Date().toISOString().split('T')[0], // Auto-fill with today's date
+    date: "",
     start_time: "",
     end_time: "",
     sign_in_time: "",
@@ -47,38 +45,20 @@ export const WorkingHoursComponent = () => {
     fetchProjects();
   }, []);
 
-  // Auto-fill today's date when dialog opens
-  useEffect(() => {
-    if (isDialogOpen && !editingWorkingHour) {
-      setFormData(prev => ({
-        ...prev,
-        date: new Date().toISOString().split('T')[0]
-      }));
-    }
-  }, [isDialogOpen, editingWorkingHour]);
-
   const fetchWorkingHours = async () => {
     try {
       const { data, error } = await supabase
         .from('working_hours')
         .select(`
           *,
-          profiles!working_hours_profile_id_fkey (id, full_name, role, hourly_rate),
+          profiles!working_hours_profile_id_fkey (id, full_name, role),
           clients!working_hours_client_id_fkey (id, company),
           projects!working_hours_project_id_fkey (id, name)
         `)
-        .order('created_at', { ascending: false });
+        .order('date', { ascending: false });
 
       if (error) throw error;
-      
-      const workingHoursData = (data || []).map(wh => ({
-        ...wh,
-        profiles: Array.isArray(wh.profiles) ? wh.profiles[0] : wh.profiles,
-        clients: Array.isArray(wh.clients) ? wh.clients[0] : wh.clients,
-        projects: Array.isArray(wh.projects) ? wh.projects[0] : wh.projects
-      }));
-      
-      setWorkingHours(workingHoursData as WorkingHour[]);
+      setWorkingHours(data as WorkingHoursType[]);
     } catch (error) {
       console.error('Error fetching working hours:', error);
       toast({
@@ -136,6 +116,23 @@ export const WorkingHoursComponent = () => {
     }
   };
 
+  const handleEditWorkingHours = (workingHour: WorkingHoursType) => {
+    setFormData({
+      profile_id: workingHour.profile_id,
+      client_id: workingHour.client_id,
+      project_id: workingHour.project_id,
+      date: workingHour.date,
+      start_time: workingHour.start_time,
+      end_time: workingHour.end_time,
+      hourly_rate: workingHour.hourly_rate || 0,
+      notes: workingHour.notes || "",
+      sign_in_time: workingHour.sign_in_time || "",
+      sign_out_time: workingHour.sign_out_time || "",
+      status: "pending"
+    });
+    setEditingWorkingHours(workingHour);
+  };
+
   const calculateTotalHours = (startTime: string, endTime: string) => {
     if (!startTime || !endTime) return 0;
     
@@ -147,51 +144,37 @@ export const WorkingHoursComponent = () => {
     return Math.max(0, diffHours);
   };
 
-  const calculateActualHours = (signInTime: string, signOutTime: string) => {
-    if (!signInTime || !signOutTime) return 0;
-    return calculateTotalHours(signInTime, signOutTime);
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
       const totalHours = calculateTotalHours(formData.start_time, formData.end_time);
-      const actualHours = formData.sign_in_time && formData.sign_out_time 
-        ? calculateTotalHours(formData.sign_in_time, formData.sign_out_time)
-        : totalHours;
-      
-      const overtimeHours = Math.max(0, actualHours - 8);
-      const regularHours = actualHours - overtimeHours;
-      const payableAmount = (regularHours * (formData.hourly_rate || 0)) + 
-                           (overtimeHours * (formData.hourly_rate || 0) * 1.5);
-
-      const workingHoursData = {
-        total_hours: totalHours,
-        actual_hours: actualHours,
-        overtime_hours: overtimeHours,
-        payable_amount: payableAmount,
-        sign_in_time: formData.sign_in_time,
-        sign_out_time: formData.sign_out_time,
-        profile_id: formData.profile_id,
-        client_id: formData.client_id,
-        project_id: formData.project_id,
-        date: formData.date,
-        start_time: formData.start_time,
-        end_time: formData.end_time,
-        hourly_rate: formData.hourly_rate,
-        notes: formData.notes,
-        status: 'pending' as const
-      };
+      const selectedProfile = profiles.find(p => p.id === formData.profile_id);
+      const hourlyRate = formData.hourly_rate || selectedProfile?.hourly_rate || 0;
+      const totalAmount = totalHours * hourlyRate;
 
       const { error } = await supabase
         .from('working_hours')
-        .insert([workingHoursData]);
+        .insert([{
+          profile_id: formData.profile_id,
+          client_id: formData.client_id,
+          project_id: formData.project_id,
+          date: formData.date,
+          start_time: formData.start_time,
+          end_time: formData.end_time,
+          sign_in_time: formData.sign_in_time || null,
+          sign_out_time: formData.sign_out_time || null,
+          total_hours: totalHours,
+          hourly_rate: hourlyRate,
+          total_amount: totalAmount,
+          notes: formData.notes,
+          status: 'pending' as const
+        }]);
 
       if (error) throw error;
 
-      toast({ title: "Success", description: "Working hours submitted successfully" });
+      toast({ title: "Success", description: "Working hours created successfully" });
       
       setIsDialogOpen(false);
       setFormData({
@@ -201,10 +184,11 @@ export const WorkingHoursComponent = () => {
         date: "",
         start_time: "",
         end_time: "",
+        sign_in_time: "",
+        sign_out_time: "",
         hourly_rate: 0,
         notes: "",
-        sign_in_time: "",
-        sign_out_time: ""
+        status: "pending"
       });
       fetchWorkingHours();
     } catch (error) {
@@ -242,13 +226,36 @@ export const WorkingHoursComponent = () => {
     }
   };
 
-  const handleEdit = (workingHour: WorkingHour) => {
-    setEditingWorkingHour(workingHour);
-    setIsEditDialogOpen(true);
+  const deleteWorkingHours = async (id: string) => {
+    if (!confirm('Are you sure you want to delete these working hours?')) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('working_hours')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      toast({ 
+        title: "Success", 
+        description: "Working hours deleted successfully" 
+      });
+      fetchWorkingHours();
+    } catch (error) {
+      console.error('Error deleting working hours:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete working hours",
+        variant: "destructive"
+      });
+    }
   };
 
   const filteredWorkingHours = workingHours.filter(wh =>
     (wh.profiles?.full_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (wh.clients?.company || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     (wh.projects?.name || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -262,41 +269,41 @@ export const WorkingHoursComponent = () => {
         <div className="flex items-center gap-3">
           <Clock className="h-8 w-8 text-blue-600" />
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Enhanced Working Hours</h1>
-            <p className="text-gray-600">Track actual hours, overtime, and payroll calculations</p>
+            <h1 className="text-3xl font-bold text-gray-900">Working Hours</h1>
+            <p className="text-gray-600">Track and manage employee working hours</p>
           </div>
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
             <Button className="flex items-center gap-2">
               <Plus className="h-4 w-4" />
-              Log Hours
+              Add Hours
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>Log Enhanced Working Hours</DialogTitle>
+              <DialogTitle>Add Working Hours</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <ProfileSelector
-                profiles={profiles}
-                selectedProfileId={formData.profile_id}
-                onProfileSelect={(profileId) => {
-                  const profile = profiles.find(p => p.id === profileId);
-                  setFormData({ 
-                    ...formData, 
-                    profile_id: profileId,
-                    hourly_rate: profile?.hourly_rate || 0 // Auto-suggest hourly rate
-                  });
-                }}
-                label="Select Profile"
-                placeholder="Choose a team member"
-                showRoleFilter={true}
-              />
-              
+              <div>
+                <Label htmlFor="profile_id">Employee</Label>
+                <Select value={formData.profile_id} onValueChange={(value) => setFormData({ ...formData, profile_id: value })} required>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select employee" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {profiles.map((profile) => (
+                      <SelectItem key={profile.id} value={profile.id}>
+                        {profile.full_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
               <div>
                 <Label htmlFor="client_id">Client</Label>
-                <Select value={formData.client_id} onValueChange={(value) => setFormData({ ...formData, client_id: value })}>
+                <Select value={formData.client_id} onValueChange={(value) => setFormData({ ...formData, client_id: value })} required>
                   <SelectTrigger>
                     <SelectValue placeholder="Select client" />
                   </SelectTrigger>
@@ -312,7 +319,7 @@ export const WorkingHoursComponent = () => {
 
               <div>
                 <Label htmlFor="project_id">Project</Label>
-                <Select value={formData.project_id} onValueChange={(value) => setFormData({ ...formData, project_id: value })}>
+                <Select value={formData.project_id} onValueChange={(value) => setFormData({ ...formData, project_id: value })} required>
                   <SelectTrigger>
                     <SelectValue placeholder="Select project" />
                   </SelectTrigger>
@@ -337,152 +344,88 @@ export const WorkingHoursComponent = () => {
                 />
               </div>
 
-              <div className="space-y-4">
-                <div className="border-t pt-4">
-                  <h4 className="font-medium text-gray-900 mb-2">Scheduled Hours</h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="start_time">Start Time</Label>
-                      <Input
-                        id="start_time"
-                        type="time"
-                        value={formData.start_time}
-                        onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
-                        required
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="end_time">End Time</Label>
-                      <Input
-                        id="end_time"
-                        type="time"
-                        value={formData.end_time}
-                        onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
-                        required
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="border-t pt-4">
-                  <h4 className="font-medium text-gray-900 mb-2">Actual Hours (Optional)</h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="sign_in_time">Sign In Time</Label>
-                      <Input
-                        id="sign_in_time"
-                        type="time"
-                        value={formData.sign_in_time}
-                        onChange={(e) => setFormData({ ...formData, sign_in_time: e.target.value })}
-                        placeholder="Optional"
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="sign_out_time">Sign Out Time</Label>
-                      <Input
-                        id="sign_out_time"
-                        type="time"
-                        value={formData.sign_out_time}
-                        onChange={(e) => setFormData({ ...formData, sign_out_time: e.target.value })}
-                        placeholder="Optional"
-                      />
-                    </div>
-                  </div>
-                </div>
-
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="hourly_rate">Hourly Rate ($)</Label>
+                  <Label htmlFor="start_time">Start Time</Label>
                   <Input
-                    id="hourly_rate"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={formData.hourly_rate}
-                    onChange={(e) => setFormData({ ...formData, hourly_rate: parseFloat(e.target.value) || 0 })}
+                    id="start_time"
+                    type="time"
+                    value={formData.start_time}
+                    onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
                     required
                   />
                 </div>
-
                 <div>
-                  <Label htmlFor="notes">Notes</Label>
-                  <Textarea
-                    id="notes"
-                    value={formData.notes}
-                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                    placeholder="Additional notes about this work session..."
+                  <Label htmlFor="end_time">End Time</Label>
+                  <Input
+                    id="end_time"
+                    type="time"
+                    value={formData.end_time}
+                    onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
+                    required
                   />
                 </div>
               </div>
 
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="sign_in_time">Sign In Time (Optional)</Label>
+                  <Input
+                    id="sign_in_time"
+                    type="time"
+                    value={formData.sign_in_time}
+                    onChange={(e) => setFormData({ ...formData, sign_in_time: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="sign_out_time">Sign Out Time (Optional)</Label>
+                  <Input
+                    id="sign_out_time"
+                    type="time"
+                    value={formData.sign_out_time}
+                    onChange={(e) => setFormData({ ...formData, sign_out_time: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="hourly_rate">Hourly Rate (Optional)</Label>
+                <Input
+                  id="hourly_rate"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={formData.hourly_rate}
+                  onChange={(e) => setFormData({ ...formData, hourly_rate: parseFloat(e.target.value) || 0 })}
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="notes">Notes</Label>
+                <Textarea
+                  id="notes"
+                  value={formData.notes}
+                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                  placeholder="Additional notes..."
+                />
+              </div>
+
               <Button type="submit" disabled={loading} className="w-full">
-                {loading ? "Saving..." : "Log Hours"}
+                {loading ? "Saving..." : "Save Working Hours"}
               </Button>
             </form>
           </DialogContent>
         </Dialog>
       </div>
 
-      {/* Enhanced Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Total Entries</CardTitle>
-            <Clock className="h-4 w-4 text-blue-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{filteredWorkingHours.length}</div>
-            <p className="text-xs text-muted-foreground">All logged hours</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Total Hours</CardTitle>
-            <Timer className="h-4 w-4 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">
-              {filteredWorkingHours.reduce((sum, wh) => sum + (wh.actual_hours || wh.total_hours), 0).toFixed(1)}
-            </div>
-            <p className="text-xs text-muted-foreground">Actual hours worked</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Overtime Hours</CardTitle>
-            <Timer className="h-4 w-4 text-orange-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-orange-600">
-              {filteredWorkingHours.reduce((sum, wh) => sum + (wh.overtime_hours || 0), 0).toFixed(1)}
-            </div>
-            <p className="text-xs text-muted-foreground">Extra hours worked</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Total Payable</CardTitle>
-            <DollarSign className="h-4 w-4 text-purple-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-purple-600">
-              ${filteredWorkingHours.reduce((sum, wh) => sum + (wh.payable_amount || 0), 0).toFixed(2)}
-            </div>
-            <p className="text-xs text-muted-foreground">Total amount due</p>
-          </CardContent>
-        </Card>
-      </div>
-
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle>Enhanced Working Hours Log ({filteredWorkingHours.length})</CardTitle>
+            <CardTitle>Working Hours Records</CardTitle>
             <div className="relative w-64">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
               <Input
-                placeholder="Search by name or project..."
+                placeholder="Search by employee, client or project..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
@@ -495,13 +438,12 @@ export const WorkingHoursComponent = () => {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-200">
-                  <th className="text-left py-3 px-4 font-medium text-gray-600">Profile</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-600">Project</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-600">Employee</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-600">Client / Project</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-600">Date</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-600">Scheduled</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-600">Actual</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-600">Overtime</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-600">Payable</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-600">Time</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-600">Hours</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-600">Amount</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-600">Status</th>
                   <th className="text-left py-3 px-4 font-medium text-gray-600">Actions</th>
                 </tr>
@@ -510,53 +452,29 @@ export const WorkingHoursComponent = () => {
                 {filteredWorkingHours.map((wh) => (
                   <tr key={wh.id} className="border-b border-gray-100 hover:bg-gray-50">
                     <td className="py-3 px-4">
-                      <div>
-                        <div className="font-medium text-gray-900">{wh.profiles?.full_name || 'N/A'}</div>
-                        <div className="text-sm text-gray-600">{wh.profiles?.role || 'N/A'}</div>
-                      </div>
+                      <div className="font-medium text-gray-900">{wh.profiles?.full_name}</div>
+                      <div className="text-sm text-gray-600">{wh.profiles?.role}</div>
                     </td>
                     <td className="py-3 px-4">
-                      <div>
-                        <div className="font-medium text-gray-900">{wh.projects?.name || 'N/A'}</div>
-                        <div className="text-sm text-gray-600">{wh.clients?.company || 'N/A'}</div>
-                      </div>
+                      <div className="font-medium text-gray-900">{wh.clients?.company}</div>
+                      <div className="text-sm text-gray-600">{wh.projects?.name}</div>
                     </td>
                     <td className="py-3 px-4 text-gray-600">
                       {new Date(wh.date).toLocaleDateString()}
                     </td>
                     <td className="py-3 px-4 text-gray-600">
-                      <div className="text-sm">
-                        {wh.start_time} - {wh.end_time}
-                        <div className="text-xs text-gray-500">{wh.total_hours}h</div>
-                      </div>
+                      {wh.start_time} - {wh.end_time}
                     </td>
                     <td className="py-3 px-4 text-gray-600">
-                      <div className="text-sm">
-                        {wh.sign_in_time && wh.sign_out_time ? (
-                          <>
-                            {wh.sign_in_time} - {wh.sign_out_time}
-                            <div className="text-xs text-gray-500">{wh.actual_hours || 0}h</div>
-                          </>
-                        ) : (
-                          <span className="text-gray-400">Not recorded</span>
-                        )}
-                      </div>
+                      {wh.total_hours.toFixed(2)}
                     </td>
-                    <td className="py-3 px-4">
-                      <div className={`text-sm font-medium ${(wh.overtime_hours || 0) > 0 ? 'text-orange-600' : 'text-gray-600'}`}>
-                        {(wh.overtime_hours || 0).toFixed(1)}h
-                      </div>
-                    </td>
-                    <td className="py-3 px-4">
-                      <div className="text-sm font-medium text-purple-600">
-                        ${(wh.payable_amount || 0).toFixed(2)}
-                        <div className="text-xs text-gray-500">${wh.hourly_rate || 0}/hr</div>
-                      </div>
+                    <td className="py-3 px-4 text-gray-600">
+                      ${wh.total_amount.toFixed(2)}
                     </td>
                     <td className="py-3 px-4">
                       <Badge variant={
                         wh.status === "approved" ? "default" : 
-                        wh.status === "pending" ? "secondary" : "outline"
+                        wh.status === "rejected" ? "destructive" : "secondary"
                       }>
                         {wh.status}
                       </Badge>
@@ -566,10 +484,10 @@ export const WorkingHoursComponent = () => {
                         <Button 
                           size="sm" 
                           variant="outline"
-                          onClick={() => handleEdit(wh)}
+                          onClick={() => handleEditWorkingHours(wh)}
                           className="text-blue-600 hover:text-blue-700"
                         >
-                          <Edit className="h-4 w-4" />
+                          Edit
                         </Button>
                         {wh.status === "pending" && (
                           <>
@@ -579,7 +497,7 @@ export const WorkingHoursComponent = () => {
                               onClick={() => updateStatus(wh.id, "approved")}
                               className="text-green-600 hover:text-green-700"
                             >
-                              <CheckCircle className="h-4 w-4" />
+                              Approve
                             </Button>
                             <Button 
                               size="sm" 
@@ -587,10 +505,18 @@ export const WorkingHoursComponent = () => {
                               onClick={() => updateStatus(wh.id, "rejected")}
                               className="text-red-600 hover:text-red-700"
                             >
-                              <XCircle className="h-4 w-4" />
+                              Reject
                             </Button>
                           </>
                         )}
+                        <Button 
+                          size="sm" 
+                          variant="outline"
+                          onClick={() => deleteWorkingHours(wh.id)}
+                          className="text-red-600 hover:text-red-700"
+                        >
+                          Delete
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -601,18 +527,19 @@ export const WorkingHoursComponent = () => {
         </CardContent>
       </Card>
 
-      <EditWorkingHoursDialog
-        workingHour={editingWorkingHour}
-        isOpen={isEditDialogOpen}
-        onClose={() => {
-          setIsEditDialogOpen(false);
-          setEditingWorkingHour(null);
-        }}
-        onUpdate={fetchWorkingHours}
-        profiles={profiles}
-        clients={clients}
-        projects={projects}
-      />
+      {editingWorkingHours && (
+        <EditWorkingHoursDialog
+          workingHours={editingWorkingHours}
+          profiles={profiles}
+          clients={clients}
+          projects={projects}
+          onClose={() => setEditingWorkingHours(null)}
+          onSave={() => {
+            setEditingWorkingHours(null);
+            fetchWorkingHours();
+          }}
+        />
+      )}
     </div>
   );
 };
