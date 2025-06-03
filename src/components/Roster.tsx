@@ -13,7 +13,6 @@ import { Roster as RosterType, Profile, Client, Project, RosterProfile } from "@
 import { useToast } from "@/hooks/use-toast";
 import { MultipleProfileSelector } from "@/components/common/MultipleProfileSelector";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { EnhancedRosterCalendarView } from "@/components/roster/EnhancedRosterCalendarView";
 
 export const RosterComponent = () => {
   const [searchTerm, setSearchTerm] = useState("");
@@ -194,7 +193,7 @@ export const RosterComponent = () => {
           end_time: formData.end_time,
           total_hours: totalHours,
           notes: formData.notes,
-          status: 'pending' as const,
+          status: formData.status,
           name: finalName,
           expected_profiles: formData.expected_profiles,
           per_hour_rate: formData.per_hour_rate
@@ -304,9 +303,17 @@ export const RosterComponent = () => {
     (roster.name || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Updated calendar view helper function
+  // Calendar view helper function
   const getCalendarRosters = () => {
-    return filteredRosters;
+    const rostersByDate: { [key: string]: RosterType[] } = {};
+    filteredRosters.forEach(roster => {
+      const dateKey = roster.date;
+      if (!rostersByDate[dateKey]) {
+        rostersByDate[dateKey] = [];
+      }
+      rostersByDate[dateKey].push(roster);
+    });
+    return rostersByDate;
   };
 
   const calendarRosters = getCalendarRosters();
@@ -551,12 +558,87 @@ export const RosterComponent = () => {
         <CardContent>
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="calendar">Enhanced Calendar View</TabsTrigger>
+              <TabsTrigger value="calendar">Calendar View</TabsTrigger>
               <TabsTrigger value="list">List View</TabsTrigger>
             </TabsList>
             
-            <TabsContent value="calendar" className="mt-6">
-              <EnhancedRosterCalendarView rosters={calendarRosters} />
+            <TabsContent value="calendar" className="mt-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {Object.entries(calendarRosters).map(([date, dateRosters]) => (
+                  <div key={date} className="space-y-2">
+                    <div className="flex items-center gap-2 mb-3 border-b pb-2">
+                      <CalendarDays className="h-5 w-5 text-blue-600" />
+                      <h3 className="font-semibold text-gray-900">
+                        {new Date(date).toLocaleDateString('en-US', {
+                          weekday: 'long',
+                          month: 'short',
+                          day: 'numeric'
+                        })}
+                      </h3>
+                      <Badge variant="outline">{dateRosters.length}</Badge>
+                    </div>
+                    {dateRosters.map((roster) => (
+                      <Card key={roster.id} className="border-l-4 border-l-blue-500">
+                        <CardContent className="p-4">
+                          <div className="space-y-2">
+                            <div className="flex items-start justify-between">
+                              <h4 className="font-medium text-sm">{roster.name || 'Unnamed Roster'}</h4>
+                              <Badge variant={
+                                roster.status === "confirmed" ? "default" : 
+                                roster.status === "pending" ? "secondary" : "outline"
+                              } className="text-xs">
+                                {roster.status}
+                              </Badge>
+                            </div>
+                            
+                            <div className="text-xs text-gray-600">
+                              <div className="flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {roster.start_time} - {roster.end_time}
+                              </div>
+                            </div>
+                            
+                            <div className="text-xs">
+                              <div className="font-medium">{roster.projects?.name}</div>
+                              <div className="text-gray-600">{roster.clients?.company}</div>
+                            </div>
+                            
+                            <div className="flex flex-wrap gap-1">
+                              {roster.roster_profiles?.slice(0, 3).map((rp) => (
+                                <Badge key={rp.id} variant="secondary" className="text-xs">
+                                  {rp.profiles?.full_name}
+                                </Badge>
+                              ))}
+                              {(roster.roster_profiles?.length || 0) > 3 && (
+                                <Badge variant="outline" className="text-xs">
+                                  +{(roster.roster_profiles?.length || 0) - 3} more
+                                </Badge>
+                              )}
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                              <div className="flex items-center gap-1">
+                                <Users className="h-3 w-3 text-blue-600" />
+                                <span>{roster.roster_profiles?.length || 0} assigned</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Clock className="h-3 w-3 text-purple-600" />
+                                <span>{roster.total_hours}h</span>
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                ))}
+              </div>
+              
+              {Object.keys(calendarRosters).length === 0 && (
+                <div className="text-center py-8 text-gray-500">
+                  No rosters found for the selected criteria
+                </div>
+              )}
             </TabsContent>
             
             <TabsContent value="list" className="mt-4">
