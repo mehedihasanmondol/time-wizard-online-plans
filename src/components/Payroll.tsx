@@ -31,6 +31,9 @@ export const PayrollComponent = () => {
     status: "pending"
   });
 
+  const [selectedProfiles, setSelectedProfiles] = useState<Profile[]>([]);
+  const [deductionPercentage, setDeductionPercentage] = useState(0);
+
   useEffect(() => {
     fetchPayrolls();
     fetchProfiles();
@@ -93,37 +96,40 @@ export const PayrollComponent = () => {
     setLoading(true);
 
     try {
-      const { gross, net } = calculatePayroll(formData.total_hours, formData.hourly_rate, formData.deductions);
-      
+      const payrollData = selectedProfiles.map(profile => ({
+        gross_pay: profile.totalHours * profile.hourlyRate,
+        net_pay: (profile.totalHours * profile.hourlyRate) * (1 - deductionPercentage / 100),
+        profile_id: profile.id,
+        pay_period_start: formData.pay_period_start,
+        pay_period_end: formData.pay_period_end,
+        total_hours: profile.totalHours,
+        hourly_rate: profile.hourlyRate,
+        deductions: (profile.totalHours * profile.hourlyRate) * (deductionPercentage / 100),
+        status: 'pending' as const
+      }));
+
       const { error } = await supabase
         .from('payroll')
-        .insert([{
-          ...formData,
-          gross_pay: gross,
-          net_pay: net
-        }]);
+        .insert(payrollData);
 
       if (error) throw error;
-      toast({ title: "Success", description: "Payroll record created successfully" });
+
+      toast({ title: "Success", description: "Payroll created successfully" });
       
       setIsDialogOpen(false);
       setFormData({
-        profile_id: "",
         pay_period_start: "",
         pay_period_end: "",
-        total_hours: 0,
-        hourly_rate: 0,
-        gross_pay: 0,
-        deductions: 0,
-        net_pay: 0,
+        bank_account_id: "",
         status: "pending"
       });
+      setSelectedProfiles([]);
       fetchPayrolls();
     } catch (error) {
       console.error('Error creating payroll:', error);
       toast({
         title: "Error",
-        description: "Failed to create payroll record",
+        description: "Failed to create payroll",
         variant: "destructive"
       });
     } finally {
