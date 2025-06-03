@@ -23,7 +23,7 @@ export const RosterComponent = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState("calendar");
+  const [activeTab, setActiveTab] = useState("calendar"); // Changed default to calendar
   const { toast } = useToast();
 
   const generateDefaultRosterName = () => {
@@ -51,7 +51,7 @@ export const RosterComponent = () => {
     start_time: "",
     end_time: "",
     notes: "",
-    status: "pending" as const,
+    status: "pending",
     name: generateDefaultRosterName(),
     expected_profiles: 1,
     per_hour_rate: 0
@@ -194,7 +194,7 @@ export const RosterComponent = () => {
           end_time: formData.end_time,
           total_hours: totalHours,
           notes: formData.notes,
-          status: formData.status,
+          status: 'pending' as const,
           name: finalName,
           expected_profiles: formData.expected_profiles,
           per_hour_rate: formData.per_hour_rate
@@ -304,17 +304,9 @@ export const RosterComponent = () => {
     (roster.name || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Calendar view helper function
+  // Updated calendar view helper function
   const getCalendarRosters = () => {
-    const rostersByDate: { [key: string]: RosterType[] } = {};
-    filteredRosters.forEach(roster => {
-      const dateKey = roster.date;
-      if (!rostersByDate[dateKey]) {
-        rostersByDate[dateKey] = [];
-      }
-      rostersByDate[dateKey].push(roster);
-    });
-    return rostersByDate;
+    return filteredRosters;
   };
 
   const calendarRosters = getCalendarRosters();
@@ -559,12 +551,12 @@ export const RosterComponent = () => {
         <CardContent>
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="calendar">Calendar View</TabsTrigger>
+              <TabsTrigger value="calendar">Enhanced Calendar View</TabsTrigger>
               <TabsTrigger value="list">List View</TabsTrigger>
             </TabsList>
             
-            <TabsContent value="calendar" className="mt-4">
-              <EnhancedRosterCalendarView rosters={filteredRosters} />
+            <TabsContent value="calendar" className="mt-6">
+              <EnhancedRosterCalendarView rosters={calendarRosters} />
             </TabsContent>
             
             <TabsContent value="list" className="mt-4">
