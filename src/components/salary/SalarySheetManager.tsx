@@ -4,12 +4,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FileText, Printer, Download, Eye, Calendar, DollarSign, Trash2 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { FileText, Printer, Download, Eye, Calendar, DollarSign, Trash2, CreditCard, Check } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { supabase } from "@/integrations/supabase/client";
-import { Payroll, Profile } from "@/types/database";
+import { Payroll, Profile, BankAccount } from "@/types/database";
 import { useToast } from "@/hooks/use-toast";
 import { SalarySheetPrintView } from "./SalarySheetPrintView";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { ActionDropdown } from "@/components/ui/action-dropdown";
+import { PayrollDetailsDialog } from "./PayrollDetailsDialog";
 
 interface SalarySheetManagerProps {
   payrolls: Payroll[];
@@ -17,17 +20,58 @@ interface SalarySheetManagerProps {
   onRefresh: () => void;
 }
 
-export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalarySheetManagerProps) => {
+export const SalarySheetManager = ({ payrolls: initialPayrolls, profiles, onRefresh }: SalarySheetManagerProps) => {
+  const [payrolls, setPayrolls] = useState<Payroll[]>(initialPayrolls);
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [selectedPeriod, setSelectedPeriod] = useState("");
   const [groupedPayrolls, setGroupedPayrolls] = useState<Record<string, Payroll[]>>({});
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedSheet, setSelectedSheet] = useState<Payroll[] | null>(null);
   const [showPrintView, setShowPrintView] = useState(false);
+  const [selectedBankAccount, setSelectedBankAccount] = useState<string>("");
+  const [selectedPayrolls, setSelectedPayrolls] = useState<string[]>([]);
+  const [selectedPayrollForView, setSelectedPayrollForView] = useState<Payroll | null>(null);
+  const [showPayrollDetails, setShowPayrollDetails] = useState(false);
   const { toast } = useToast();
+
+  // Update local payrolls when prop changes
+  useEffect(() => {
+    setPayrolls(initialPayrolls);
+  }, [initialPayrolls]);
 
   useEffect(() => {
     groupPayrollsByPeriod();
+    fetchBankAccounts();
+    loadSavedBankAccount();
   }, [payrolls]);
+
+  const fetchBankAccounts = async () => {
+    try {
+      // Only fetch non-profile-linked bank accounts for general use
+      const { data, error } = await supabase
+        .from('bank_accounts')
+        .select('*')
+        .is('profile_id', null)
+        .order('bank_name');
+
+      if (error) throw error;
+      setBankAccounts(data || []);
+    } catch (error) {
+      console.error('Error fetching bank accounts:', error);
+    }
+  };
+
+  const loadSavedBankAccount = () => {
+    const saved = localStorage.getItem('defaultPaymentBank');
+    if (saved && bankAccounts.length > 0) {
+      setSelectedBankAccount(saved);
+    }
+  };
+
+  const saveBankAccountSelection = (bankId: string) => {
+    localStorage.setItem('defaultPaymentBank', bankId);
+    setSelectedBankAccount(bankId);
+  };
 
   const groupPayrollsByPeriod = () => {
     const grouped: Record<string, Payroll[]> = {};
@@ -59,6 +103,48 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
   const totalDeductions = searchFilteredPayrolls.reduce((sum, p) => sum + p.deductions, 0);
   const totalNetPay = searchFilteredPayrolls.reduce((sum, p) => sum + p.net_pay, 0);
   const totalHours = searchFilteredPayrolls.reduce((sum, p) => sum + p.total_hours, 0);
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedPayrolls(searchFilteredPayrolls.map(p => p.id));
+    } else {
+      setSelectedPayrolls([]);
+    }
+  };
+
+  const handleSelectPayroll = (payrollId: string, checked: boolean) => {
+    if (checked) {
+      setSelectedPayrolls(prev => [...prev, payrollId]);
+    } else {
+      setSelectedPayrolls(prev => prev.filter(id => id !== payrollId));
+    }
+  };
+
+  const handleBulkAction = async (action: 'approve' | 'pay') => {
+    const status = action === 'approve' ? 'approved' : 'paid';
+    const confirmMessage = action === 'approve' 
+      ? `Mark ${selectedPayrolls.length} payrolls as approved?`
+      : `Mark ${selectedPayrolls.length} payrolls as paid?`;
+
+    if (!confirm(confirmMessage)) return;
+
+    try {
+      for (const payrollId of selectedPayrolls) {
+        await updatePayrollStatus(payrollId, status, selectedBankAccount);
+      }
+      setSelectedPayrolls([]);
+      toast({
+        title: "Success",
+        description: `${selectedPayrolls.length} payrolls marked as ${status}`
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: "Failed to update payrolls",
+        variant: "destructive"
+      });
+    }
+  };
 
   const handlePrintSheet = (payrollList: Payroll[]) => {
     setSelectedSheet(payrollList);
@@ -94,19 +180,20 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
     });
   };
 
-  const updatePayrollStatus = async (payrollId: string, status: 'pending' | 'approved' | 'paid') => {
+  const updatePayrollStatus = async (payrollId: string, status: 'pending' | 'approved' | 'paid', bankAccountId?: string) => {
     try {
       const payroll = payrolls.find(p => p.id === payrollId);
       if (!payroll) throw new Error('Payroll not found');
 
       // If changing to paid status, check bank balance and create withdrawal
       if (status === 'paid' && payroll.status !== 'paid') {
-        if (payroll.bank_account_id) {
+        const bankId = bankAccountId || selectedBankAccount;
+        if (bankId) {
           // Check bank balance
           const { data: bankAccount, error: bankError } = await supabase
             .from('bank_accounts')
             .select('opening_balance')
-            .eq('id', payroll.bank_account_id)
+            .eq('id', bankId)
             .single();
 
           if (bankError) throw bankError;
@@ -115,7 +202,7 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
           const { data: transactions, error: transError } = await supabase
             .from('bank_transactions')
             .select('amount, type')
-            .eq('bank_account_id', payroll.bank_account_id);
+            .eq('bank_account_id', bankId);
 
           if (transError) throw transError;
 
@@ -141,22 +228,17 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
               category: 'salary',
               date: new Date().toISOString().split('T')[0],
               profile_id: payroll.profile_id,
-              bank_account_id: payroll.bank_account_id
+              bank_account_id: bankId
             });
 
           if (transactionError) throw transactionError;
+
+          // Update payroll with bank account
+          await supabase
+            .from('payroll')
+            .update({ bank_account_id: bankId })
+            .eq('id', payrollId);
         }
-
-        // Update related working hours to "paid" status
-        const { error: workingHoursError } = await supabase
-          .from('working_hours')
-          .update({ status: 'paid' })
-          .eq('profile_id', payroll.profile_id)
-          .gte('date', payroll.pay_period_start)
-          .lte('date', payroll.pay_period_end)
-          .eq('status', 'approved');
-
-        if (workingHoursError) throw workingHoursError;
 
         // Send notification for payment
         const { error: notificationError } = await supabase
@@ -174,7 +256,7 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
         if (notificationError) console.error('Failed to send notification:', notificationError);
       }
 
-      // Update payroll status
+      // Update payroll status in database
       const { error } = await supabase
         .from('payroll')
         .update({ status })
@@ -182,19 +264,16 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
 
       if (error) throw error;
       
-      toast({
-        title: "Success",
-        description: `Payroll status updated to ${status}`
-      });
+      // Update local state without full refresh
+      setPayrolls(prevPayrolls => 
+        prevPayrolls.map(p => 
+          p.id === payrollId ? { ...p, status } : p
+        )
+      );
       
-      onRefresh();
     } catch (error: any) {
       console.error('Error updating payroll status:', error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update payroll status",
-        variant: "destructive"
-      });
+      throw error;
     }
   };
 
@@ -219,12 +298,16 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
 
       if (error) throw error;
 
+      // Update local state without full refresh
+      setPayrolls(prevPayrolls => 
+        prevPayrolls.filter(p => p.id !== payrollId)
+      );
+
       toast({
         title: "Success",
         description: "Payroll deleted successfully"
       });
 
-      onRefresh();
     } catch (error: any) {
       console.error('Error deleting payroll:', error);
       toast({
@@ -233,6 +316,16 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
         variant: "destructive"
       });
     }
+  };
+
+  const handleViewPayroll = (payroll: Payroll) => {
+    setSelectedPayrollForView(payroll);
+    setShowPayrollDetails(true);
+  };
+
+  const getSelectedBankName = () => {
+    const bank = bankAccounts.find(b => b.id === selectedBankAccount);
+    return bank ? `${bank.bank_name} - ${bank.account_number}` : 'Select Bank Account';
   };
 
   return (
@@ -334,11 +427,83 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
                 </Card>
               </div>
 
+              {/* Bank Account Selection for Payments */}
+              {bankAccounts.length > 0 && (
+                <div className="mb-6">
+                  <Card>
+                    <CardContent className="pt-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <CreditCard className="h-4 w-4 text-blue-600" />
+                          <span className="text-sm font-medium">Payment Bank Account:</span>
+                        </div>
+                        <Select value={selectedBankAccount} onValueChange={saveBankAccountSelection}>
+                          <SelectTrigger className="w-64">
+                            <SelectValue placeholder="Select bank account" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {bankAccounts.map((account) => (
+                              <SelectItem key={account.id} value={account.id}>
+                                {account.bank_name} - {account.account_number}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {selectedBankAccount && (
+                        <div className="mt-2 text-xs text-gray-500">
+                          All payments will be processed from: {getSelectedBankName()}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* Bulk Actions */}
+              {selectedPayrolls.length > 0 && (
+                <div className="mb-4">
+                  <Card>
+                    <CardContent className="pt-4">
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm font-medium">
+                          {selectedPayrolls.length} payroll(s) selected
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleBulkAction('approve')}
+                          >
+                            <Check className="h-4 w-4 mr-1" />
+                            Bulk Approve
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => handleBulkAction('pay')}
+                            disabled={!selectedBankAccount}
+                          >
+                            <DollarSign className="h-4 w-4 mr-1" />
+                            Bulk Mark as Paid
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
               {/* Payroll Table */}
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-gray-200">
+                      <th className="text-left py-3 px-4 font-medium text-gray-600">
+                        <Checkbox
+                          checked={selectedPayrolls.length === searchFilteredPayrolls.length && searchFilteredPayrolls.length > 0}
+                          onCheckedChange={handleSelectAll}
+                        />
+                      </th>
                       <th className="text-left py-3 px-4 font-medium text-gray-600">Employee</th>
                       <th className="text-left py-3 px-4 font-medium text-gray-600">Hours</th>
                       <th className="text-left py-3 px-4 font-medium text-gray-600">Rate</th>
@@ -352,6 +517,12 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
                   <tbody>
                     {searchFilteredPayrolls.map((payroll) => (
                       <tr key={payroll.id} className="border-b border-gray-100 hover:bg-gray-50">
+                        <td className="py-3 px-4">
+                          <Checkbox
+                            checked={selectedPayrolls.includes(payroll.id)}
+                            onCheckedChange={(checked) => handleSelectPayroll(payroll.id, checked as boolean)}
+                          />
+                        </td>
                         <td className="py-3 px-4">
                           <div>
                             <div className="font-medium">{payroll.profiles?.full_name || 'N/A'}</div>
@@ -381,16 +552,23 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
                                   variant="outline"
                                   onClick={() => updatePayrollStatus(payroll.id, 'approved')}
                                 >
-                                  Approve
+                                  Mark as Approved
                                 </Button>
-                                <Button 
-                                  size="sm" 
-                                  variant="outline"
-                                  onClick={() => deletePayroll(payroll.id)}
-                                  className="text-red-600 hover:text-red-700"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
+                                <ActionDropdown
+                                  items={[
+                                    {
+                                      label: "Delete",
+                                      onClick: () => deletePayroll(payroll.id),
+                                      icon: <Trash2 className="h-4 w-4" />,
+                                      variant: "destructive"
+                                    },
+                                    {
+                                      label: "View Details",
+                                      onClick: () => handleViewPayroll(payroll),
+                                      icon: <Eye className="h-4 w-4" />
+                                    }
+                                  ]}
+                                />
                               </>
                             )}
                             {payroll.status === 'approved' && (
@@ -398,33 +576,39 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
                                 <Button 
                                   size="sm" 
                                   variant="outline"
-                                  onClick={() => updatePayrollStatus(payroll.id, 'paid')}
+                                  onClick={() => updatePayrollStatus(payroll.id, 'paid', selectedBankAccount)}
+                                  disabled={!selectedBankAccount}
                                 >
-                                  Mark Paid
+                                  Mark as Paid
                                 </Button>
-                                <Button 
-                                  size="sm" 
-                                  variant="outline"
-                                  onClick={() => deletePayroll(payroll.id)}
-                                  className="text-red-600 hover:text-red-700"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
+                                <ActionDropdown
+                                  items={[
+                                    {
+                                      label: "Delete",
+                                      onClick: () => deletePayroll(payroll.id),
+                                      icon: <Trash2 className="h-4 w-4" />,
+                                      variant: "destructive"
+                                    },
+                                    {
+                                      label: "View Details",
+                                      onClick: () => handleViewPayroll(payroll),
+                                      icon: <Eye className="h-4 w-4" />
+                                    }
+                                  ]}
+                                />
                               </>
                             )}
-                            <Dialog>
-                              <DialogTrigger asChild>
-                                <Button size="sm" variant="outline">
-                                  <Eye className="h-4 w-4" />
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent className="max-w-2xl">
-                                <DialogHeader>
-                                  <DialogTitle>Payroll Details</DialogTitle>
-                                </DialogHeader>
-                                <SalarySheetPrintView payrolls={[payroll]} period={selectedPeriod} />
-                              </DialogContent>
-                            </Dialog>
+                            {payroll.status === 'paid' && (
+                              <ActionDropdown
+                                items={[
+                                  {
+                                    label: "View Details",
+                                    onClick: () => handleViewPayroll(payroll),
+                                    icon: <Eye className="h-4 w-4" />
+                                  }
+                                ]}
+                              />
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -448,6 +632,14 @@ export const SalarySheetManager = ({ payrolls, profiles, onRefresh }: SalaryShee
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Payroll Details Dialog */}
+      <PayrollDetailsDialog
+        payroll={selectedPayrollForView}
+        open={showPayrollDetails}
+        onOpenChange={setShowPayrollDetails}
+        onRefresh={onRefresh}
+      />
     </div>
   );
 };

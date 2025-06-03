@@ -14,7 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { MultipleProfileSelector } from "@/components/common/MultipleProfileSelector";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-export const Roster = () => {
+export const RosterComponent = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [rosters, setRosters] = useState<RosterType[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
