@@ -158,53 +158,38 @@ export const WorkingHoursComponent = () => {
 
     try {
       const totalHours = calculateTotalHours(formData.start_time, formData.end_time);
-      const actualHours = formData.sign_in_time && formData.sign_out_time 
-        ? calculateTotalHours(formData.sign_in_time, formData.sign_out_time)
-        : totalHours;
+      const actualHours = calculateActualHours(formData.sign_in_time, formData.sign_out_time);
+      const overtimeHours = Math.max(0, actualHours - totalHours);
+      const payableAmount = (actualHours || totalHours) * formData.hourly_rate;
       
-      const overtimeHours = Math.max(0, actualHours - 8);
-      const regularHours = actualHours - overtimeHours;
-      const payableAmount = (regularHours * (formData.hourly_rate || 0)) + 
-                           (overtimeHours * (formData.hourly_rate || 0) * 1.5);
-
-      const workingHoursData = {
-        total_hours: totalHours,
-        actual_hours: actualHours,
-        overtime_hours: overtimeHours,
-        payable_amount: payableAmount,
-        sign_in_time: formData.sign_in_time,
-        sign_out_time: formData.sign_out_time,
-        profile_id: formData.profile_id,
-        client_id: formData.client_id,
-        project_id: formData.project_id,
-        date: formData.date,
-        start_time: formData.start_time,
-        end_time: formData.end_time,
-        hourly_rate: formData.hourly_rate,
-        notes: formData.notes,
-        status: 'pending' as const
-      };
-
       const { error } = await supabase
         .from('working_hours')
-        .insert([workingHoursData]);
+        .insert([{
+          ...formData,
+          total_hours: totalHours,
+          actual_hours: actualHours || null,
+          overtime_hours: overtimeHours,
+          payable_amount: payableAmount,
+          sign_in_time: formData.sign_in_time || null,
+          sign_out_time: formData.sign_out_time || null
+        }]);
 
       if (error) throw error;
-
-      toast({ title: "Success", description: "Working hours submitted successfully" });
+      toast({ title: "Success", description: "Working hours logged successfully" });
       
       setIsDialogOpen(false);
       setFormData({
         profile_id: "",
         client_id: "",
         project_id: "",
-        date: "",
+        date: new Date().toISOString().split('T')[0], // Reset to today's date
         start_time: "",
         end_time: "",
+        sign_in_time: "",
+        sign_out_time: "",
         hourly_rate: 0,
         notes: "",
-        sign_in_time: "",
-        sign_out_time: ""
+        status: "pending"
       });
       fetchWorkingHours();
     } catch (error) {
