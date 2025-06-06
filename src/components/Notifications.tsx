@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -280,12 +281,6 @@ export const Notifications = () => {
                 Create Notification
               </Button>
             )}
-            {unreadCount > 0 && (
-              <Button onClick={markAllAsRead} variant="outline">
-                <CheckCircle2 className="h-4 w-4 mr-2" />
-                Mark All Read
-              </Button>
-            )}
           </div>
         </div>
       </div>
@@ -344,7 +339,15 @@ export const Notifications = () => {
       {/* Notifications List */}
       <Card>
         <CardHeader>
-          <CardTitle>Recent Notifications ({notifications.length})</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>Recent Notifications ({notifications.length})</CardTitle>
+            {unreadCount > 0 && (
+              <Button onClick={markAllAsRead} variant="outline" size="sm">
+                <CheckCircle2 className="h-4 w-4 mr-2" />
+                Mark All Read
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {notifications.length === 0 ? (
