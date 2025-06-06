@@ -8,6 +8,7 @@ import { Profile } from "@/types/database";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { NotificationCreateForm } from "./notifications/NotificationCreateForm";
+import { NotificationDateFilter } from "./notifications/NotificationDateFilter";
 
 interface Notification {
   id: string;
@@ -29,6 +30,8 @@ export const Notifications = () => {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [canCreateNotifications, setCanCreateNotifications] = useState(false);
   const [isCreateFormOpen, setIsCreateFormOpen] = useState(false);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const { toast } = useToast();
   const { user } = useAuth();
 
@@ -38,15 +41,25 @@ export const Notifications = () => {
       fetchProfiles();
       checkNotificationPermissions();
     }
-  }, [user]);
+  }, [user, startDate, endDate]);
 
   const fetchNotifications = async () => {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('notifications')
         .select('*')
         .eq('recipient_profile_id', user?.id)
         .order('created_at', { ascending: false });
+
+      // Apply date filters if set
+      if (startDate) {
+        query = query.gte('created_at', startDate + 'T00:00:00');
+      }
+      if (endDate) {
+        query = query.lte('created_at', endDate + 'T23:59:59');
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
 
@@ -224,6 +237,11 @@ export const Notifications = () => {
     }
   };
 
+  const clearDateFilter = () => {
+    setStartDate("");
+    setEndDate("");
+  };
+
   const unreadCount = notifications.filter(n => !n.read).length;
 
   if (loading) {
@@ -247,19 +265,28 @@ export const Notifications = () => {
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
-          {canCreateNotifications && (
-            <Button onClick={() => setIsCreateFormOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Create Notification
-            </Button>
-          )}
-          {unreadCount > 0 && (
-            <Button onClick={markAllAsRead} variant="outline">
-              <CheckCircle2 className="h-4 w-4 mr-2" />
-              Mark All Read
-            </Button>
-          )}
+        <div className="flex items-center gap-4">
+          <NotificationDateFilter
+            startDate={startDate}
+            endDate={endDate}
+            onStartDateChange={setStartDate}
+            onEndDateChange={setEndDate}
+            onClear={clearDateFilter}
+          />
+          <div className="flex gap-2">
+            {canCreateNotifications && (
+              <Button onClick={() => setIsCreateFormOpen(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Create Notification
+              </Button>
+            )}
+            {unreadCount > 0 && (
+              <Button onClick={markAllAsRead} variant="outline">
+                <CheckCircle2 className="h-4 w-4 mr-2" />
+                Mark All Read
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
