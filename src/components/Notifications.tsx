@@ -8,6 +8,8 @@ import { Profile } from "@/types/database";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { NotificationCreateForm } from "./notifications/NotificationCreateForm";
+import { NotificationDateFilter } from "./notifications/NotificationDateFilter";
+import { format, isAfter, isBefore, isEqual, parseISO } from "date-fns";
 
 interface Notification {
   id: string;
@@ -25,10 +27,13 @@ interface Notification {
 
 export const Notifications = () => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [filteredNotifications, setFilteredNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [canCreateNotifications, setCanCreateNotifications] = useState(false);
   const [isCreateFormOpen, setIsCreateFormOpen] = useState(false);
+  const [startDate, setStartDate] = useState<Date | undefined>();
+  const [endDate, setEndDate] = useState<Date | undefined>();
   const { toast } = useToast();
   const { user } = useAuth();
 
@@ -39,6 +44,38 @@ export const Notifications = () => {
       checkNotificationPermissions();
     }
   }, [user]);
+
+  useEffect(() => {
+    filterNotifications();
+  }, [notifications, startDate, endDate]);
+
+  const filterNotifications = () => {
+    let filtered = [...notifications];
+
+    if (startDate || endDate) {
+      filtered = filtered.filter(notification => {
+        const notificationDate = parseISO(notification.created_at);
+        
+        if (startDate && endDate) {
+          return (isAfter(notificationDate, startDate) || isEqual(notificationDate, startDate)) &&
+                 (isBefore(notificationDate, endDate) || isEqual(notificationDate, endDate));
+        } else if (startDate) {
+          return isAfter(notificationDate, startDate) || isEqual(notificationDate, startDate);
+        } else if (endDate) {
+          return isBefore(notificationDate, endDate) || isEqual(notificationDate, endDate);
+        }
+        
+        return true;
+      });
+    }
+
+    setFilteredNotifications(filtered);
+  };
+
+  const clearDateFilter = () => {
+    setStartDate(undefined);
+    setEndDate(undefined);
+  };
 
   const fetchNotifications = async () => {
     try {
@@ -224,7 +261,7 @@ export const Notifications = () => {
     }
   };
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const unreadCount = filteredNotifications.filter(n => !n.read).length;
 
   if (loading) {
     return <div className="flex justify-center items-center h-64">Loading notifications...</div>;
@@ -247,19 +284,28 @@ export const Notifications = () => {
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
-          {canCreateNotifications && (
-            <Button onClick={() => setIsCreateFormOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Create Notification
-            </Button>
-          )}
-          {unreadCount > 0 && (
-            <Button onClick={markAllAsRead} variant="outline">
-              <CheckCircle2 className="h-4 w-4 mr-2" />
-              Mark All Read
-            </Button>
-          )}
+        <div className="flex items-center gap-4">
+          <NotificationDateFilter
+            startDate={startDate}
+            endDate={endDate}
+            onStartDateChange={setStartDate}
+            onEndDateChange={setEndDate}
+            onClearFilter={clearDateFilter}
+          />
+          <div className="flex gap-2">
+            {canCreateNotifications && (
+              <Button onClick={() => setIsCreateFormOpen(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Create Notification
+              </Button>
+            )}
+            {unreadCount > 0 && (
+              <Button onClick={markAllAsRead} variant="outline">
+                <CheckCircle2 className="h-4 w-4 mr-2" />
+                Mark All Read
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -271,8 +317,8 @@ export const Notifications = () => {
             <Bell className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{notifications.length}</div>
-            <p className="text-xs text-muted-foreground">All notifications</p>
+            <div className="text-2xl font-bold text-blue-600">{filteredNotifications.length}</div>
+            <p className="text-xs text-muted-foreground">Filtered notifications</p>
           </CardContent>
         </Card>
 
@@ -294,7 +340,7 @@ export const Notifications = () => {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-purple-600">
-              {notifications.filter(n => !n.is_actioned && n.action_type !== 'none').length}
+              {filteredNotifications.filter(n => !n.is_actioned && n.action_type !== 'none').length}
             </div>
             <p className="text-xs text-muted-foreground">Require action</p>
           </CardContent>
@@ -307,7 +353,7 @@ export const Notifications = () => {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-red-600">
-              {notifications.filter(n => n.priority === 'high').length}
+              {filteredNotifications.filter(n => n.priority === 'high').length}
             </div>
             <p className="text-xs text-muted-foreground">High priority items</p>
           </CardContent>
@@ -317,17 +363,17 @@ export const Notifications = () => {
       {/* Notifications List */}
       <Card>
         <CardHeader>
-          <CardTitle>Recent Notifications ({notifications.length})</CardTitle>
+          <CardTitle>Recent Notifications ({filteredNotifications.length})</CardTitle>
         </CardHeader>
         <CardContent>
-          {notifications.length === 0 ? (
+          {filteredNotifications.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
               <Bell className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-              <p>No notifications available</p>
+              <p>No notifications found for the selected date range</p>
             </div>
           ) : (
             <div className="space-y-4">
-              {notifications.map((notification) => (
+              {filteredNotifications.map((notification) => (
                 <div
                   key={notification.id}
                   className={`border rounded-lg p-4 transition-all ${
