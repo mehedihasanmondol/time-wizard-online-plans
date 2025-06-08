@@ -10,8 +10,6 @@ import { Roster as RosterType, Profile, Client, Project } from "@/types/database
 import { MultipleProfileSelector } from "@/components/common/MultipleProfileSelector";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { AlertTriangle } from "lucide-react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface RosterEditDialogProps {
   roster: RosterType | null;
@@ -34,8 +32,6 @@ export const RosterEditDialog = ({
 }: RosterEditDialogProps) => {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
-  const [canEdit, setCanEdit] = useState(true);
-  const [workingHoursStatus, setWorkingHoursStatus] = useState<string>("");
   
   const [formData, setFormData] = useState({
     name: '',
@@ -68,48 +64,8 @@ export const RosterEditDialog = ({
         expected_profiles: roster.expected_profiles || 1,
         per_hour_rate: roster.per_hour_rate || 0
       });
-      checkWorkingHoursStatus();
     }
   }, [roster, isOpen]);
-
-  const checkWorkingHoursStatus = async () => {
-    if (!roster) return;
-
-    try {
-      const { data, error } = await supabase
-        .from('working_hours')
-        .select('status')
-        .eq('roster_id', roster.id);
-
-      if (error) throw error;
-
-      const hasApprovedOrPaid = data?.some(wh => wh.status === 'approved' || wh.status === 'paid');
-      
-      if (hasApprovedOrPaid) {
-        setCanEdit(false);
-        const approvedCount = data?.filter(wh => wh.status === 'approved').length || 0;
-        const paidCount = data?.filter(wh => wh.status === 'paid').length || 0;
-        
-        let statusMessage = "This roster cannot be edited because it has ";
-        if (paidCount > 0) {
-          statusMessage += `${paidCount} paid working hour${paidCount > 1 ? 's' : ''}`;
-          if (approvedCount > 0) {
-            statusMessage += ` and ${approvedCount} approved working hour${approvedCount > 1 ? 's' : ''}`;
-          }
-        } else if (approvedCount > 0) {
-          statusMessage += `${approvedCount} approved working hour${approvedCount > 1 ? 's' : ''}`;
-        }
-        statusMessage += ".";
-        setWorkingHoursStatus(statusMessage);
-      } else {
-        setCanEdit(true);
-        setWorkingHoursStatus("");
-      }
-    } catch (error) {
-      console.error('Error checking working hours status:', error);
-      setCanEdit(true);
-    }
-  };
 
   const calculateTotalHours = (startTime: string, endTime: string) => {
     if (!startTime || !endTime) return 0;
@@ -124,7 +80,7 @@ export const RosterEditDialog = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!roster || !canEdit) return;
+    if (!roster) return;
     
     setLoading(true);
 
@@ -194,16 +150,6 @@ export const RosterEditDialog = ({
         <DialogHeader>
           <DialogTitle className="text-lg sm:text-xl">Edit Roster</DialogTitle>
         </DialogHeader>
-
-        {!canEdit && (
-          <Alert className="mb-4">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertDescription>
-              {workingHoursStatus}
-            </AlertDescription>
-          </Alert>
-        )}
-
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <Label htmlFor="name" className="text-sm font-medium">Roster Name</Label>
@@ -213,7 +159,6 @@ export const RosterEditDialog = ({
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               placeholder="Enter roster name"
               className="mt-1"
-              disabled={!canEdit}
             />
           </div>
 
@@ -226,14 +171,13 @@ export const RosterEditDialog = ({
               placeholder="Choose team members"
               showRoleFilter={true}
               className="border rounded-lg p-3 bg-gray-50"
-              disabled={!canEdit}
             />
           </div>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <Label htmlFor="client_id" className="text-sm font-medium">Client</Label>
-              <Select value={formData.client_id} onValueChange={(value) => setFormData({ ...formData, client_id: value })} disabled={!canEdit}>
+              <Select value={formData.client_id} onValueChange={(value) => setFormData({ ...formData, client_id: value })}>
                 <SelectTrigger className="mt-1">
                   <SelectValue placeholder="Select client" />
                 </SelectTrigger>
@@ -249,7 +193,7 @@ export const RosterEditDialog = ({
 
             <div>
               <Label htmlFor="project_id" className="text-sm font-medium">Project</Label>
-              <Select value={formData.project_id} onValueChange={(value) => setFormData({ ...formData, project_id: value })} disabled={!canEdit}>
+              <Select value={formData.project_id} onValueChange={(value) => setFormData({ ...formData, project_id: value })}>
                 <SelectTrigger className="mt-1">
                   <SelectValue placeholder="Select project" />
                 </SelectTrigger>
@@ -274,7 +218,6 @@ export const RosterEditDialog = ({
                 onChange={(e) => setFormData({ ...formData, date: e.target.value })}
                 required
                 className="mt-1"
-                disabled={!canEdit}
               />
             </div>
             <div>
@@ -286,7 +229,6 @@ export const RosterEditDialog = ({
                 onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
                 min={formData.date}
                 className="mt-1"
-                disabled={!canEdit}
               />
             </div>
           </div>
@@ -301,7 +243,6 @@ export const RosterEditDialog = ({
                 onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
                 required
                 className="mt-1"
-                disabled={!canEdit}
               />
             </div>
             <div>
@@ -313,7 +254,6 @@ export const RosterEditDialog = ({
                 onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
                 required
                 className="mt-1"
-                disabled={!canEdit}
               />
             </div>
           </div>
@@ -328,7 +268,6 @@ export const RosterEditDialog = ({
                 value={formData.expected_profiles}
                 onChange={(e) => setFormData({ ...formData, expected_profiles: parseInt(e.target.value) || 1 })}
                 className="mt-1"
-                disabled={!canEdit}
               />
             </div>
             <div>
@@ -341,14 +280,13 @@ export const RosterEditDialog = ({
                 value={formData.per_hour_rate}
                 onChange={(e) => setFormData({ ...formData, per_hour_rate: parseFloat(e.target.value) || 0 })}
                 className="mt-1"
-                disabled={!canEdit}
               />
             </div>
           </div>
 
           <div>
             <Label htmlFor="status" className="text-sm font-medium">Status</Label>
-            <Select value={formData.status} onValueChange={(value: 'pending' | 'confirmed' | 'cancelled') => setFormData({ ...formData, status: value })} disabled={!canEdit}>
+            <Select value={formData.status} onValueChange={(value: 'pending' | 'confirmed' | 'cancelled') => setFormData({ ...formData, status: value })}>
               <SelectTrigger className="mt-1">
                 <SelectValue placeholder="Select status" />
               </SelectTrigger>
@@ -368,19 +306,16 @@ export const RosterEditDialog = ({
               onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
               placeholder="Additional notes for this roster..."
               className="mt-1 min-h-[80px]"
-              disabled={!canEdit}
             />
           </div>
 
           <div className="flex flex-col sm:flex-row justify-end gap-2">
             <Button type="button" variant="outline" onClick={onClose} className="w-full sm:w-auto">
-              {canEdit ? "Cancel" : "Close"}
+              Cancel
             </Button>
-            {canEdit && (
-              <Button type="submit" disabled={loading} className="w-full sm:w-auto">
-                {loading ? "Updating..." : "Update Roster"}
-              </Button>
-            )}
+            <Button type="submit" disabled={loading} className="w-full sm:w-auto">
+              {loading ? "Updating..." : "Update Roster"}
+            </Button>
           </div>
         </form>
       </DialogContent>
