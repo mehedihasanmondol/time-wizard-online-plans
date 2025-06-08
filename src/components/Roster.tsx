@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -192,26 +193,27 @@ export const RosterComponent = () => {
         : "";
       const finalName = formData.name.trim() || defaultName || generateDefaultRosterName();
       
-      // Use a database transaction to ensure proper sequencing
-      const { data: roster, error: rosterError } = await supabase.rpc('create_roster_with_profiles', {
-        p_profile_id: formData.profile_ids[0], // Primary profile
-        p_client_id: formData.client_id,
-        p_project_id: formData.project_id,
-        p_date: formData.date,
-        p_end_date: formData.end_date || null,
-        p_start_time: formData.start_time,
-        p_end_time: formData.end_time,
-        p_total_hours: totalHours,
-        p_notes: formData.notes,
-        p_status: formData.status as 'pending' | 'confirmed' | 'cancelled',
-        p_name: finalName,
-        p_expected_profiles: formData.expected_profiles,
-        p_per_hour_rate: formData.per_hour_rate,
-        p_profile_ids: formData.profile_ids
-      });
+      // Call the database function directly using supabase query
+      const { data: result, error: functionError } = await supabase
+        .rpc('create_roster_with_profiles', {
+          p_profile_id: formData.profile_ids[0],
+          p_client_id: formData.client_id,
+          p_project_id: formData.project_id,
+          p_date: formData.date,
+          p_end_date: formData.end_date || null,
+          p_start_time: formData.start_time,
+          p_end_time: formData.end_time,
+          p_total_hours: totalHours,
+          p_notes: formData.notes,
+          p_status: formData.status as 'pending' | 'confirmed' | 'cancelled',
+          p_name: finalName,
+          p_expected_profiles: formData.expected_profiles,
+          p_per_hour_rate: formData.per_hour_rate,
+          p_profile_ids: formData.profile_ids
+        });
 
-      if (rosterError) {
-        console.error('Database function error:', rosterError);
+      if (functionError) {
+        console.error('Database function error:', functionError);
         // Fallback to the original method if the function doesn't exist
         await createRosterFallback(totalHours, finalName);
       } else {
