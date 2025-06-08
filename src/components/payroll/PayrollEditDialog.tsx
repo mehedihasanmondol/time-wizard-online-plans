@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Payroll, PayrollWorkingHours, WorkingHour } from "@/types/database";
+import { Payroll, WorkingHour } from "@/types/database";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -53,7 +53,7 @@ export const PayrollEditDialog = ({ payroll, isOpen, onClose, onSave }: PayrollE
       const { data, error } = await supabase
         .from('payroll_working_hours')
         .select(`
-          *,
+          working_hours_id,
           working_hours (
             *,
             clients (id, company),
